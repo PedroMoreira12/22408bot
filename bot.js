@@ -1,5 +1,9 @@
+import express from 'express';
 import { getAllDiscussions, getDiscussionMessages } from './discussions.js';
 import { handleMessage } from './messageHandlers.js';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -31,4 +35,15 @@ const listenAndRespond = async () => {
   }, 3000);
 };
 
+// Start your bot logic
 listenAndRespond();
+
+// Set up a simple route for the web server
+app.get('/', (req, res) => {
+  res.send('Hello, VK Bot is running!');
+});
+
+// Start the Express server
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
