@@ -3,7 +3,7 @@ import { GROUP_ID } from './config.js';
 
 export const getAllDiscussions = async () => {
   try {
-    const response = await apiCall('board.getTopics', { group_id: GROUP_ID, count: 100 });
+    const response = await apiCall('board.getTopics', { group_id: GROUP_ID, count: 5, order: 1 });
     return response.items;
   } catch (error) {
     console.error('Error getting discussions:', error);
@@ -17,7 +17,7 @@ export const getDiscussionMessages = async (topicId) => {
       group_id: GROUP_ID,
       topic_id: topicId,
       sort: 'desc',
-      count: 10
+      count: 5
     });
     return response.items;
   } catch (error) {
