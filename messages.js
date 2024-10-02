@@ -88,26 +88,14 @@ Em vez de ficar fazendo magiazinha, porque você não ajuda de verdade? Aqui nã
 #14PONTOS`
 };
 
-// export const gsdMessages = [
-//     messages.gsd1,
-//     messages.gsd2,
-//     messages.gsd3,
-//     messages.gsd4,
-//     messages.gsd5,
-//     messages.gsd6
-// ]
-
 export const gsdMessages = [
-    'Gracias Señor Duds!',
+    'Gracias Señor Duds!'
 ]
 
 export const azMessages = [
-    messages.az1,
-    messages.az2
+    '🤖 ¡AntiZica ativado!'
 ]
 
 export const antigsdMessages = [
-    messages.antigsd1,
-    messages.antigsd2,
-    messages.antigsd3
+    'MONGOLOIDE'
 ]

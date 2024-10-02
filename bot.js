@@ -32,7 +32,7 @@ const listenAndRespond = async () => {
         }
       }
     }
-  }, 6000);
+  }, 3000);
 };
 
 // Start your bot logic
