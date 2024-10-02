@@ -88,13 +88,17 @@ Em vez de ficar fazendo magiazinha, porque você não ajuda de verdade? Aqui nã
 #14PONTOS`
 };
 
+// export const gsdMessages = [
+//     messages.gsd1,
+//     messages.gsd2,
+//     messages.gsd3,
+//     messages.gsd4,
+//     messages.gsd5,
+//     messages.gsd6
+// ]
+
 export const gsdMessages = [
-    messages.gsd1,
-    messages.gsd2,
-    messages.gsd3,
-    messages.gsd4,
-    messages.gsd5,
-    messages.gsd6
+    'Gracias Señor Duds!',
 ]
 
 export const azMessages = [
