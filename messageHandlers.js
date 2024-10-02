@@ -10,7 +10,7 @@ export async function handleMessage(latestMessage, discussion) {
     if (lowerCaseText === '!camisa7') {
         const fanCount = await camisa7Call();
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Temos ${fanCount} sócios! ✈️`);
-    } else if (latestMessage.text.includes('!c')) {
+    } else if (latestMessage.text.includes('!c ') || latestMessage.text === '!c') {
         const cleanedMessage = latestMessage.text.replace('!c', '').trim();
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], ${cleanedMessage} ✈️`);
     } else if (lowerCaseText === '!gsd') {
@@ -22,5 +22,7 @@ export async function handleMessage(latestMessage, discussion) {
     } else if (lowerCaseText === '!mongol') {
         const randomAntiGSDMessage = getRandomAntiGSDMessage();
         await postReply(discussion.id, latestMessage.id, randomAntiGSDMessage);
+    } else if (lowerCaseText === '!upem') {
+        await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Mais uma coisa que ninguém ouviu falar! PODE UPAR https://vk.com/topic-73670797_41317973 ✈️`)
     }
 }
