@@ -3,3 +3,11 @@ node_modules/
 
 # Environment variables
 .env
+
+.dockerignore
+
+.github/
+
+Dockerfile
+
+fly.toml

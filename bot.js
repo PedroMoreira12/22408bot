@@ -3,7 +3,7 @@ import { getAllDiscussions, getDiscussionMessages } from './discussions.js';
 import { handleMessage } from './messageHandlers.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
