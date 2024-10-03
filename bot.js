@@ -3,6 +3,7 @@ import connectDB from './config/db.js';
 import { getAllDiscussions, getDiscussionMessages } from './discussions.js';
 import { handleMessage } from './messageHandlers.js';
 import { checkReminders } from './utils.js';
+import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
