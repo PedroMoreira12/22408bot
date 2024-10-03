@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for bot-vk on 2024-10-02T21:18:49-03:00
+# fly.toml app configuration file generated for bot-vk-teste on 2024-10-03T09:37:44-03:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'bot-vk'
+app = 'bot-vk-teste'
 primary_region = 'iad'
 
 [build]

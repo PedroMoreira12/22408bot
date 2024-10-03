@@ -1,9 +1,13 @@
 import express from 'express';
+import connectDB from './config/db.js';
 import { getAllDiscussions, getDiscussionMessages } from './discussions.js';
 import { handleMessage } from './messageHandlers.js';
+import { checkReminders } from './utils.js';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+await connectDB();
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -33,6 +37,11 @@ const listenAndRespond = async () => {
       }
     }
   }, 3000);
+
+  setInterval(async () => {
+    console.log('Checking reminders...');
+    await checkReminders();
+  }, 60000);
 };
 
 // Start your bot logic

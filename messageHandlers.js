@@ -1,7 +1,8 @@
 import { getUser } from './user.js';
 import { camisa7Call } from './api.js';
 import { postReply } from './replies.js';
-import { getRandomGSDMessage, getRandomAZMessage, getRandomAntiGSDMessage } from './utils.js';
+import { getRandomGSDMessage, getRandomAZMessage, getRandomAntiGSDMessage, calculateReminderDate } from './utils.js';
+import Reminder from './models/Reminder.js'
 
 export async function handleMessage(latestMessage, discussion) {
     const lowerCaseText = latestMessage.text.toLowerCase().trim();
@@ -24,5 +25,25 @@ export async function handleMessage(latestMessage, discussion) {
         await postReply(discussion.id, latestMessage.id, randomAntiGSDMessage);
     } else if (lowerCaseText === '!upem') {
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Mais uma coisa que ninguém ouviu falar! PODE UPAR https://vk.com/topic-73670797_41317973 ✈️`)
+    } else if (lowerCaseText.startsWith('!remind')) {
+        try {
+            const [_, time, unit] = lowerCaseText.split(' ');
+            const reminderDate = calculateReminderDate(time, unit);
+    
+            const newReminder = new Reminder({
+                topicId: discussion.id,
+                messageId: latestMessage.id,
+                userId: latestMessage.from_id,
+                remindAt: reminderDate,
+                message: `Reminder for ${username}`
+            });
+    
+            await newReminder.save();
+    
+            await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], vou te marcar no tópico em ${time} ${unit} ✈️`);
+        } catch (error) {
+            console.log('Error:', error.message);
+            await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Desculpe, ocorreu um erro ao configurar o lembrete. Verifique se escreveu corretamente ou chame o Sarmet ✈️`);
+        }
     }
 }
