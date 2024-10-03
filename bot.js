@@ -42,7 +42,24 @@ const listenAndRespond = async () => {
     console.log('Checking reminders...');
     await checkReminders();
   }, 60000);
+
+  setInterval(reloadWebsite, interval);
+
+  
 };
+
+const url = `https://two2408bot.onrender.com`;
+const interval = 30000;
+
+function reloadWebsite() {
+  axios.get(url)
+    .then(response => {
+      console.log(`Reloaded at ${new Date().toISOString()}: Status Code ${response.status}`);
+    })
+    .catch(error => {
+      console.error(`Error reloading at ${new Date().toISOString()}:`, error.message);
+    });
+}
 
 // Start your bot logic
 listenAndRespond();
