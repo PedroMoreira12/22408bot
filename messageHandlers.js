@@ -25,7 +25,7 @@ export async function handleMessage(latestMessage, discussion) {
         await postReply(discussion.id, latestMessage.id, randomAntiGSDMessage);
     } else if (lowerCaseText === '!upem') {
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Mais uma coisa que ninguém ouviu falar! PODE UPAR https://vk.com/topic-73670797_41317973 ✈️`)
-    } else if (lowerCaseText.startsWith('!remind')) {
+    } else if (lowerCaseText.startsWith('!remind') || lowerCaseText.startsWith('!r ')) {
         try {
             const [_, time, unit] = lowerCaseText.split(' ');
             const reminderDate = calculateReminderDate(time, unit);
@@ -40,7 +40,7 @@ export async function handleMessage(latestMessage, discussion) {
     
             await newReminder.save();
     
-            await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], vou te marcar no tópico em ${time} ${unit} ✈️`);
+            await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Vou te marcar no tópico em ${time} ${unit} ✈️`);
         } catch (error) {
             console.log('Error:', error.message);
             await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Desculpe, ocorreu um erro ao configurar o lembrete. Verifique se escreveu corretamente ou chame o Sarmet ✈️`);
