@@ -49,7 +49,7 @@ const listenAndRespond = async () => {
   
 };
 
-const url = `https://two2408bot.onrender.com`;
+const url = `https://botvk-2xs3.onrender.com/`;
 const interval = 30000;
 
 function reloadWebsite() {
