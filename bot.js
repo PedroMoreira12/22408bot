@@ -1,9 +1,14 @@
 import express from 'express';
+import connectDB from './config/db.js';
 import { getAllDiscussions, getDiscussionMessages } from './discussions.js';
 import { handleMessage } from './messageHandlers.js';
+import { checkReminders } from './utils.js';
+import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+await connectDB();
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -33,7 +38,29 @@ const listenAndRespond = async () => {
       }
     }
   }, 3000);
+
+  setInterval(async () => {
+    console.log('Checking reminders...');
+    await checkReminders();
+  }, 60000);
+
+  setInterval(reloadWebsite, interval);
+
+  
 };
+
+const url = `https://two2408bot.onrender.com`;
+const interval = 30000;
+
+function reloadWebsite() {
+  axios.get(url)
+    .then(response => {
+      console.log(`Reloaded at ${new Date().toISOString()}: Status Code ${response.status}`);
+    })
+    .catch(error => {
+      console.error(`Error reloading at ${new Date().toISOString()}:`, error.message);
+    });
+}
 
 // Start your bot logic
 listenAndRespond();
