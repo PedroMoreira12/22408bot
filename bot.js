@@ -44,7 +44,7 @@ const listenAndRespond = async () => {
     await checkReminders();
   }, 60000);
 
-  setInterval(reloadWebsite, interval);
+  // setInterval(reloadWebsite, interval);
 
   
 };
