@@ -2,6 +2,7 @@ import { getUser } from './user.js';
 import { camisa7Call } from './api.js';
 import { postReply } from './replies.js';
 import { getRandomGSDMessage, getRandomAZMessage, getRandomAntiGSDMessage, calculateReminderDate } from './utils.js';
+import { messages } from './messages.js'
 import Reminder from './models/Reminder.js'
 
 export async function handleMessage(latestMessage, discussion) {
@@ -45,5 +46,7 @@ export async function handleMessage(latestMessage, discussion) {
             console.log('Error:', error.message);
             await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Desculpe, ocorreu um erro ao configurar o lembrete. Verifique se escreveu corretamente ou chame o Sarmet ✈️`);
         }
+    } else if (lowerCaseText === '!tutorial') {
+        await postReply(discussion.id, latestMessage.id, messages.tutorial)
     }
 }

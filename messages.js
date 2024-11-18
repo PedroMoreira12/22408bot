@@ -9,19 +9,25 @@ Prepara o grito de gol, porque com essa invocação, o adversário já tá treme
 Os deuses do futebol já estão jogando as runas, e o adversário tá sentindo o bafo da derrota chegando. Se prepara pra ver aquele gol cagado que só o Fogão sabe fazer! 😎
 
 A partir de agora, todo chute é gol, todo escanteio vira ataque nuclear e até o VAR tá do nosso lado! 🙌🔥`,
-    gsd3: `🔥 Pimpão Bot sentiu um !GSD no ar! 🔥 🤖🧙‍♂
+    tutorial: `🔥 Comandos do Pimpão Bot: 🔥 🤖🧙‍♂
 
-¡Gracias Señor Duds! A magia está oficialmente ON! ✨
+Todos os comandos são iniciados com o ponto de exclamação !
 
-Se prepara que agora até o Tiquinho vai dar pique de 100 metros sem perder o fôlego! 😂 O Eduardo vai acertar todos os passes de letra, e o Adryelson vai virar centroavante e meter hat-trick! ⚽🎩
+camisa7 - Diz a contagem atualizada dos números de sócios camisa 7.
 
-O John Textor já tá ligando pro Elon Musk pra instalar foguete nas chuteiras dos jogadores! 🚀
+c - Cita no tópico, podendo colocar uma mensagem para ser escrita pelo bot na hora de mencionar.
 
-E não para por aí! Com essa invocação, até o VAR vai marcar gol pro Fogão! O AJ vai liberar churrasco pós-jogo e a cerveja vai ser por conta da casa! 🍻
+gsd - Agradece o ritual do mago duds.
 
-Adversário? Nem vem que não tem! Aqui é Pimpão Bot turbinado pela magia do GSD! 😎🔥
+antizica - Tenta tirar a energia negativa da tentativa de zica.
 
-#GraciasSeñorDuds #PimpãoBotNoModoTurbo #FogãoImparável`,
+mongol - Amigávelmente deixa claro que o o membro é um mongolóide.
+
+upem - Manda o link do tópico das coisas que você só conhece pela comunidade.
+
+remind ou r - depois de especificar um tempo (minutos, horas, dias, meses), o bot irá te citar no tempo que você escolher. (Exemplo: !r 10 dias)
+
+tutorial - O bot coloca esse tutorial.`,
     gsd4: `🔥 Pimpão Bot detectou mais um !GSD! Vamos nessa! 🔥 🤖🧙‍♂
 
 ¡Gracias Señor Duds! A magia está oficialmente ativada! ✨
