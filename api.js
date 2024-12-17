@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { ACCESS_TOKEN, API_VERSION } from './config.js';
+import { ACCESS_TOKEN, ACCESS_TOKEN_COMMUNITY, API_VERSION } from './config.js';
 
 export const apiCall = async (method, params = {}) => {
-  params.access_token = ACCESS_TOKEN;
+  params.access_token = method === 'messages.send' ? ACCESS_TOKEN_COMMUNITY : ACCESS_TOKEN
   params.v = API_VERSION;
 
   try {

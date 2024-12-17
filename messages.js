@@ -9,25 +9,40 @@ Prepara o grito de gol, porque com essa invocação, o adversário já tá treme
 Os deuses do futebol já estão jogando as runas, e o adversário tá sentindo o bafo da derrota chegando. Se prepara pra ver aquele gol cagado que só o Fogão sabe fazer! 😎
 
 A partir de agora, todo chute é gol, todo escanteio vira ataque nuclear e até o VAR tá do nosso lado! 🙌🔥`,
-    tutorial: `🔥 Comandos do Pimpão Bot: 🔥 🤖🧙‍♂
+    tutorial: `
+🔥 Comandos do Pimpão Bot 🤖🧙‍♂️  
+## Todos os comandos devem ser iniciados com o ponto de exclamação (\`!\`).
 
-Todos os comandos são iniciados com o ponto de exclamação !
+### 📋 **Lista de Comandos**  
 
-camisa7 - Diz a contagem atualizada dos números de sócios camisa 7.
+- **\`camisa7\`**  
+   Mostra a contagem atualizada de sócios do plano *Camisa 7*.
 
-c - Cita no tópico, podendo colocar uma mensagem para ser escrita pelo bot na hora de mencionar.
+- **\`c [mensagem]\`**  
+   Cita um usuário no tópico, com a opção de incluir uma mensagem personalizada.
 
-gsd - Agradece o ritual do mago duds.
+- **\`gsd\`**  
+   Agradece o *ritual do mago Duds* pela magia da GSD.
 
-antizica - Tenta tirar a energia negativa da tentativa de zica.
+- **\`antizica\`**  
+   Elimina energias negativas e afasta qualquer tentativa de *zica*.
 
-mongol - Amigávelmente deixa claro que o o membro é um mongolóide.
+- **\`mongol\`**  
+   De forma amigável e descontraída, lembra que o usuário mencionado *é meio mongolóide*.  
 
-upem - Manda o link do tópico das coisas que você só conhece pela comunidade.
+- **\`upem\`**  
+   Envia o link para o tópico das coisas que "você só conhece pela comunidade".
 
-remind ou r - depois de especificar um tempo (minutos, horas, dias, meses), o bot irá te citar no tempo que você escolher. (Exemplo: !r 10 dias)
+- **\`remind\` ou \`!r [tempo]\`**  
+   Cria um lembrete e cita você após o tempo especificado.  
+   **Exemplo:** \`!r 10 dias\`  
 
-tutorial - O bot coloca esse tutorial.`,
+- **\`mensagem\` ou \`!m\`**  
+   Envia uma mensagem privada com o **link** e **título do tópico**.  
+   > *Importante:* Para usar este comando, você precisa seguir a página do bot e enviar uma mensagem para ativá-lo.
+
+---
+`,
     gsd4: `🔥 Pimpão Bot detectou mais um !GSD! Vamos nessa! 🔥 🤖🧙‍♂
 
 ¡Gracias Señor Duds! A magia está oficialmente ativada! ✨

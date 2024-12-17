@@ -1,6 +1,6 @@
 import { getUser } from './user.js';
 import { camisa7Call } from './api.js';
-import { postReply } from './replies.js';
+import { postReply, postMessage } from './replies.js';
 import { getRandomGSDMessage, getRandomAZMessage, getRandomAntiGSDMessage, calculateReminderDate } from './utils.js';
 import { messages } from './messages.js'
 import Reminder from './models/Reminder.js'
@@ -26,6 +26,8 @@ export async function handleMessage(latestMessage, discussion) {
         await postReply(discussion.id, latestMessage.id, randomAntiGSDMessage);
     } else if (lowerCaseText === '!upem') {
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Mais uma coisa que ninguém ouviu falar! PODE UPAR https://vk.com/topic-73670797_41317973 ✈️`)
+    } else if (lowerCaseText === '!m') {
+        await postMessage(discussion.id, latestMessage.id, latestMessage.from_id, `Segue o link do tópico ${discussion.title}: https://vk.com/topic-73670797_${discussion.id}`, username)
     } else if (lowerCaseText.startsWith('!remind') || lowerCaseText.startsWith('!r ')) {
         try {
             const [_, time, unit] = lowerCaseText.split(' ');

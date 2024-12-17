@@ -52,12 +52,13 @@ function reloadWebsite() {
     });
 }
 
+setInterval(reloadWebsite, interval);
+
   setInterval(async () => {
     console.log('Checking reminders...');
     await checkReminders();
   }, 60000);
 
-  setInterval(reloadWebsite, interval);
 
   
 };
