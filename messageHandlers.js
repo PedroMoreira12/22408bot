@@ -26,7 +26,7 @@ export async function handleMessage(latestMessage, discussion) {
         await postReply(discussion.id, latestMessage.id, randomAntiGSDMessage);
     } else if (lowerCaseText === '!upem') {
         await postReply(discussion.id, latestMessage.id, `[post${latestMessage.id}|${username}], Mais uma coisa que ninguém ouviu falar! PODE UPAR https://vk.com/topic-73670797_41317973 ✈️`)
-    } else if (lowerCaseText === '!m') {
+    } else if (lowerCaseText === '!m' || lowerCaseText === '!mensagem') {
         await postMessage(discussion.id, latestMessage.id, latestMessage.from_id, `Segue o link do tópico ${discussion.title}: https://vk.com/topic-73670797_${discussion.id}`, username)
     } else if (lowerCaseText.startsWith('!remind') || lowerCaseText.startsWith('!r ')) {
         try {

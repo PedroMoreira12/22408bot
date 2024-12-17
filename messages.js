@@ -16,13 +16,13 @@ A partir de agora, todo chute é gol, todo escanteio vira ataque nuclear e até 
 ### 📋 **Lista de Comandos**  
 
 - **\`camisa7\`**  
-   Mostra a contagem atualizada de sócios do plano *Camisa 7*.
+   Mostra a contagem atualizada de sócios do plano * Camisa 7 *.
 
 - **\`c [mensagem]\`**  
    Cita um usuário no tópico, com a opção de incluir uma mensagem personalizada.
 
 - **\`gsd\`**  
-   Agradece o *ritual do mago Duds* pela magia da GSD.
+   Agradece o * ritual do mago Duds * pela magia da GSD.
 
 - **\`antizica\`**  
    Elimina energias negativas e afasta qualquer tentativa de *zica*.
@@ -39,7 +39,7 @@ A partir de agora, todo chute é gol, todo escanteio vira ataque nuclear e até 
 
 - **\`mensagem\` ou \`!m\`**  
    Envia uma mensagem privada com o **link** e **título do tópico**.  
-   > *Importante:* Para usar este comando, você precisa seguir a página do bot e enviar uma mensagem para ativá-lo.
+   > * Importante: * Para usar este comando, você precisa seguir a página do bot e enviar uma mensagem para ativá-lo.
 
 ---
 `,
