@@ -39,19 +39,6 @@ const listenAndRespond = async () => {
     }
   }, 3000);
 
-const url = `https://two2408bot.onrender.com`;
-const interval = Math.floor(Math.random() * (55000 - 40000 + 1)) + 40000;
-
-function reloadWebsite() {
-  axios.get(url)
-    .then(response => {
-      console.log(`Reloaded at ${new Date().toISOString()}: Status Code ${response.status}`);
-    })
-    .catch(error => {
-      console.error(`Error reloading at ${new Date().toISOString()}:`, error.message);
-    });
-}
-
 setInterval(reloadWebsite, interval);
 
   setInterval(async () => {
