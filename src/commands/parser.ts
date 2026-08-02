@@ -1,4 +1,5 @@
 export type ReminderUnit = 'minuto' | 'hora' | 'dia' | 'mes';
+export type AgendaScope = 'today' | 'tomorrow' | 'botafogo';
 
 export type ParsedCommand =
   | { kind: 'camisa7' }
@@ -9,6 +10,11 @@ export type ParsedCommand =
   | { kind: 'upem' }
   | { kind: 'private-message' }
   | { kind: 'tutorial' }
+  | { kind: 'game' }
+  | { kind: 'agenda'; scope: AgendaScope }
+  | { kind: 'invalid-agenda' }
+  | { kind: 'table' }
+  | { kind: 'reminders' }
   | { kind: 'reminder'; amount: number; unit: ReminderUnit; displayUnit: string }
   | { kind: 'invalid-reminder' };
 
@@ -57,12 +63,39 @@ export function parseCommand(text: string): ParsedCommand | null {
       return { kind: 'private-message' };
     case 'tutorial':
       return { kind: 'tutorial' };
+    case 'jogo':
+    case 'proximo':
+    case 'próximo':
+    case 'proximojogo':
+    case 'próximojogo':
+      return { kind: 'game' };
+    case 'agenda':
+      return parseAgenda(argument);
+    case 'tabela':
+    case 'classificacao':
+    case 'classificação':
+    case 'brasileirao':
+    case 'brasileirão':
+      return { kind: 'table' };
+    case 'lembretes':
+    case 'meuslembretes':
+      return { kind: 'reminders' };
     case 'r':
     case 'remind':
       return parseReminder(argument);
     default:
       return null;
   }
+}
+
+function parseAgenda(argument: string): ParsedCommand {
+  const normalized = argument.toLocaleLowerCase('pt-BR');
+  if (!normalized) return { kind: 'agenda', scope: 'today' };
+  if (normalized === 'amanha' || normalized === 'amanhã') {
+    return { kind: 'agenda', scope: 'tomorrow' };
+  }
+  if (normalized === 'botafogo') return { kind: 'agenda', scope: 'botafogo' };
+  return { kind: 'invalid-agenda' };
 }
 
 function parseReminder(argument: string): ParsedCommand {

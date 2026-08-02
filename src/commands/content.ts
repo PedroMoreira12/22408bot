@@ -30,6 +30,18 @@ export const tutorialMessage = `
    Envia uma mensagem privada com o **link** e **título do tópico**.  
    > * Importante: * Para usar este comando, você precisa seguir a página do bot e enviar uma mensagem para ativá-lo.
 
+- **\`!jogo\`**
+   Mostra o próximo jogo confirmado do Botafogo, independentemente da competição.
+
+- **\`!agenda\`, \`!agenda amanhã\` ou \`!agenda botafogo\`**
+   Mostra a agenda da Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca.
+
+- **\`!tabela\`**
+   Mostra a posição do Botafogo e os times próximos na tabela.
+
+- **\`!lembretes\`**
+   Lista seus lembretes pendentes.
+
 ---
 `;
 

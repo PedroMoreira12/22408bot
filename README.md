@@ -2,6 +2,18 @@
 
 Bot serverless para comandos nos tópicos de discussão do VK. O cron-job.org aciona uma função curta na Vercel; MongoDB mantém cursores, fila de comandos e lembretes.
 
+O polling recupera no máximo as últimas 24 horas de atividade. Após uma interrupção mais longa, comentários anteriores a essa janela são ignorados e os cursores avançam sem executar comandos antigos.
+
+## Comandos esportivos e lembretes
+
+- `!jogo`, `!proximo`, `!proximojogo`: próximo jogo confirmado do Botafogo em qualquer competição.
+- `!agenda`, `!agenda amanhã`: jogos da Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca.
+- `!agenda botafogo`: próximos jogos confirmados do Botafogo.
+- `!tabela`, `!classificacao`, `!brasileirao`: Botafogo e clubes próximos na tabela.
+- `!lembretes`, `!meuslembretes`: até dez lembretes pendentes do autor.
+
+Agenda e próximos jogos vêm das páginas públicas de agenda do ge; a tabela da Série A usa `campeonato-brasileiro-api`. As respostas são validadas antes do uso e mantidas em cache por cinco minutos. Nenhuma chave esportiva adicional é necessária.
+
 ## Configuração
 
 1. Use Node.js 24 e execute `npm install`.

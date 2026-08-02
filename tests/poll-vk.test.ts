@@ -85,4 +85,55 @@ describe('pollVkDiscussions', () => {
     expect(result.cursorsSeeded).toBe(1);
     expect(modelMocks.commandUpdate).not.toHaveBeenCalled();
   });
+
+  it('ignora comandos com mais de 24 horas após uma interrupção longa', async () => {
+    const now = new Date('2026-08-02T12:00:00.000Z');
+    const oneYearAgo = new Date('2025-08-02T12:00:00.000Z');
+    modelMocks.stateFind.mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        initializedAt: oneYearAgo,
+        lastSuccessfulPollAt: oneYearAgo,
+      }),
+    });
+    modelMocks.commandUpdate.mockResolvedValue({ upsertedCount: 1 });
+    modelMocks.stateUpdate.mockResolvedValue({ acknowledged: true });
+    modelMocks.cursorUpdate.mockResolvedValue({ acknowledged: true });
+    modelMocks.cursorFind.mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ lastCommentId: '10' }),
+    });
+
+    const getTopics = vi.fn().mockResolvedValue({
+      count: 1,
+      items: [{ id: 7, title: 'Jogo', updated: Math.floor(now.getTime() / 1_000) }],
+    });
+    const getComments = vi.fn().mockResolvedValue({
+      count: 2,
+      items: [
+        { id: 30, from_id: 2, date: Math.floor(now.getTime() / 1_000), text: '!gsd' },
+        {
+          id: 20,
+          from_id: 1,
+          date: Math.floor((now.getTime() - 25 * 60 * 60_000) / 1_000),
+          text: '!tutorial',
+        },
+      ],
+    });
+    const vk = { getTopics, getComments } as unknown as VkClient;
+
+    const result = await pollVkDiscussions(vk, Date.now() + 10_000, now);
+
+    expect(result.commentsFound).toBe(1);
+    expect(result.commandsQueued).toBe(1);
+    expect(modelMocks.commandUpdate).toHaveBeenCalledTimes(1);
+    expect(modelMocks.commandUpdate).toHaveBeenCalledWith(
+      { topicId: '7', commentId: '30' },
+      expect.any(Object),
+      { upsert: true },
+    );
+    expect(modelMocks.cursorUpdate).toHaveBeenCalledWith(
+      { topicId: '7' },
+      expect.objectContaining({ $set: expect.objectContaining({ lastCommentId: '30' }) }),
+      { upsert: true },
+    );
+  });
 });

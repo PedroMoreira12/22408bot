@@ -6,6 +6,7 @@ import { TopicCursor } from '../models/topic-cursor.js';
 
 const STATE_ID = 'main';
 const OVERLAP_MILLISECONDS = 2 * 60_000;
+const MAX_CATCHUP_MILLISECONDS = 24 * 60 * 60_000;
 const TOPIC_PAGE_SIZE = 100;
 const COMMENT_PAGE_SIZE = 100;
 const MAX_TOPIC_PAGES = 5;
@@ -25,7 +26,10 @@ export async function pollVkDiscussions(
   now = new Date(),
 ): Promise<PollStats> {
   const state = await JobState.findById(STATE_ID).lean();
-  const topics = await getRecentlyUpdatedTopics(vk, state?.lastSuccessfulPollAt, now, deadline);
+  const previousPollAt = state?.lastSuccessfulPollAt ?? state?.initializedAt;
+  const since =
+    state?.initializedAt && previousPollAt ? calculatePollingStart(previousPollAt, now) : undefined;
+  const topics = await getRecentlyUpdatedTopics(vk, since, now, deadline);
 
   if (!state?.initializedAt) {
     const cursorsSeeded = await seedTopicCursors(vk, topics, deadline);
@@ -43,9 +47,7 @@ export async function pollVkDiscussions(
     };
   }
 
-  const since = new Date(
-    (state.lastSuccessfulPollAt ?? state.initializedAt).getTime() - OVERLAP_MILLISECONDS,
-  );
+  if (!since) throw new Error('Estado do polling inicializado sem data de referência');
   let commentsFound = 0;
   let commandsQueued = 0;
   let topicsScanned = 0;
@@ -64,33 +66,40 @@ export async function pollVkDiscussions(
 
 async function getRecentlyUpdatedTopics(
   vk: VkClient,
-  lastPoll: Date | undefined,
+  since: Date | undefined,
   now: Date,
   deadline: number,
 ): Promise<VkTopic[]> {
-  const sinceSeconds = lastPoll
-    ? Math.floor((lastPoll.getTime() - OVERLAP_MILLISECONDS) / 1_000)
-    : 0;
+  const sinceSeconds = since ? Math.floor(since.getTime() / 1_000) : 0;
   const topics: VkTopic[] = [];
   let complete = false;
 
   for (let page = 0; page < MAX_TOPIC_PAGES && Date.now() < deadline; page += 1) {
     const response = await vk.getTopics(page * TOPIC_PAGE_SIZE, TOPIC_PAGE_SIZE);
-    topics.push(...response.items.filter((topic) => !lastPoll || topic.updated >= sinceSeconds));
+    topics.push(...response.items.filter((topic) => !since || topic.updated >= sinceSeconds));
     if (response.items.length < TOPIC_PAGE_SIZE) {
       complete = true;
       break;
     }
     const latestOnPage = Math.max(...response.items.map((topic) => topic.updated));
-    if (lastPoll && latestOnPage < sinceSeconds) {
+    if (since && latestOnPage < sinceSeconds) {
       complete = true;
       break;
     }
   }
 
-  if (lastPoll && !complete) throw new Error('Backlog de tópicos excedeu o limite seguro');
+  if (since && !complete) throw new Error('Backlog de tópicos excedeu o limite seguro');
 
   return topics.filter((topic) => topic.updated <= Math.floor(now.getTime() / 1_000) + 60);
+}
+
+function calculatePollingStart(previousPollAt: Date, now: Date): Date {
+  return new Date(
+    Math.max(
+      previousPollAt.getTime() - OVERLAP_MILLISECONDS,
+      now.getTime() - MAX_CATCHUP_MILLISECONDS,
+    ),
+  );
 }
 
 async function seedTopicCursors(

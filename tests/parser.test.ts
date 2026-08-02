@@ -43,4 +43,25 @@ describe('parseCommand', () => {
     const now = new Date('2026-01-01T00:00:00.000Z');
     expect(calculateReminderDate(1, 'minuto', now).toISOString()).toBe('2026-01-01T00:01:00.000Z');
   });
+
+  it.each(['!jogo', '!proximo', '!próximo', '!proximojogo', '!próximojogo'])(
+    'reconhece alias de jogo: %s',
+    (input) => expect(parseCommand(input)).toEqual({ kind: 'game' }),
+  );
+
+  it.each(['!tabela', '!classificacao', '!classificação', '!brasileirao', '!brasileirão'])(
+    'reconhece alias da tabela: %s',
+    (input) => expect(parseCommand(input)).toEqual({ kind: 'table' }),
+  );
+
+  it('reconhece as variações da agenda', () => {
+    expect(parseCommand('!agenda')).toEqual({ kind: 'agenda', scope: 'today' });
+    expect(parseCommand('!agenda AMANHÃ')).toEqual({ kind: 'agenda', scope: 'tomorrow' });
+    expect(parseCommand('!agenda botafogo')).toEqual({ kind: 'agenda', scope: 'botafogo' });
+    expect(parseCommand('!agenda semana')).toEqual({ kind: 'invalid-agenda' });
+  });
+
+  it.each(['!lembretes', '!meuslembretes'])('reconhece listagem de lembretes: %s', (input) => {
+    expect(parseCommand(input)).toEqual({ kind: 'reminders' });
+  });
 });

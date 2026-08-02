@@ -1,4 +1,10 @@
 import { getCamisa7Count } from '../clients/camisa7.js';
+import { getBrasileiraoCompetition, type BrasileiraoCompetition } from '../clients/brasileirao.js';
+import {
+  getBotafogoSchedule,
+  getDailyFootballSchedule,
+  type FootballSchedule,
+} from '../clients/football-schedule.js';
 import { VkApiError, type VkClient } from '../clients/vk.js';
 import { Reminder } from '../models/reminder.js';
 import {
@@ -9,6 +15,7 @@ import {
   tutorialMessage,
 } from './content.js';
 import { calculateReminderDate, type ParsedCommand } from './parser.js';
+import { formatAgenda, formatBotafogoGame, formatBrasileiraoTable } from './sports.js';
 
 const COMMUNITY_PAGE = 'https://vk.com/club228711116';
 const TOPIC_BASE_URL = 'https://vk.com/topic-73670797_';
@@ -26,6 +33,9 @@ export interface CommandContext {
 export interface ExecuteDependencies {
   vk: VkClient;
   getFanCount?: typeof getCamisa7Count;
+  getBrasileirao?: () => Promise<BrasileiraoCompetition>;
+  getBotafogoSchedule?: () => Promise<FootballSchedule>;
+  getDailyFootballSchedule?: () => Promise<FootballSchedule>;
   random?: () => number;
   now?: () => Date;
 }
@@ -123,5 +133,73 @@ export async function executeCommand(
       return;
     case 'tutorial':
       await reply(tutorialMessage);
+      return;
+    case 'game': {
+      const data = await (dependencies.getBotafogoSchedule ?? getBotafogoSchedule)();
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\n${formatBotafogoGame(data, dependencies.now?.())}`,
+      );
+      return;
+    }
+    case 'agenda': {
+      const data =
+        command.scope === 'botafogo'
+          ? await (dependencies.getBotafogoSchedule ?? getBotafogoSchedule)()
+          : await (dependencies.getDailyFootballSchedule ?? getDailyFootballSchedule)();
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\n${formatAgenda(data, command.scope, dependencies.now?.())}`,
+      );
+      return;
+    }
+    case 'invalid-agenda':
+      await reply(
+        `[post${context.commentId}|${await authorName()}], use !agenda, !agenda amanhã ou !agenda botafogo ✈️`,
+      );
+      return;
+    case 'table': {
+      const data = await (dependencies.getBrasileirao ?? getBrasileiraoCompetition)();
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\n${formatBrasileiraoTable(data)}`,
+      );
+      return;
+    }
+    case 'reminders': {
+      const now = dependencies.now?.() ?? new Date();
+      const reminders = await Reminder.find({
+        userId: String(context.userId),
+        $or: [{ status: { $in: ['pending', 'processing'] } }, { status: { $exists: false } }],
+      })
+        .sort({ remindAt: 1 })
+        .limit(11)
+        .lean();
+      const visible = reminders.slice(0, 10);
+      if (visible.length === 0) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], você não tem lembretes pendentes ✈️`,
+        );
+        return;
+      }
+      const lines = visible.map(
+        (reminder, index) =>
+          `${index + 1}. ${formatReminderDate(reminder.remindAt, now)} — ${TOPIC_BASE_URL}${reminder.topicId}?post=${reminder.messageId}`,
+      );
+      if (reminders.length > visible.length) lines.push('...e mais lembretes pendentes.');
+      await reply(
+        `[post${context.commentId}|${await authorName()}], seus lembretes pendentes:\n${lines.join('\n')}`,
+      );
+      return;
+    }
   }
+}
+
+function formatReminderDate(remindAt: Date, now: Date): string {
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: remindAt.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return formatter.format(remindAt);
 }

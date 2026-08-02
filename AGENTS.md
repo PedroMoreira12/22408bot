@@ -13,6 +13,7 @@ Referência oficial da VK: <https://dev.vk.com/en/reference>. A base das chamada
 - `GET /api/health` é um health check sem dependência de banco ou configuração.
 - Cursores por tópico, jobs únicos por comentário e IDs determinísticos nas escritas VK evitam perda e duplicação.
 - A primeira execução inicializa os cursores sem responder a comentários históricos.
+- O polling limita a recuperação às últimas 24 horas; comentários mais antigos são ignorados após indisponibilidades prolongadas.
 
 Não adicione processos contínuos, `setInterval` ou listeners de Long Poll: a Vercel executa funções sob demanda. O usuário não administra a comunidade monitorada e, portanto, não pode cadastrar Callback API nela.
 
@@ -39,9 +40,15 @@ Centralize chamadas em `src/clients/vk.ts`. Use POST, timeout, envelope validado
 | `!upem`            | Envia o link fixo do tópico de “upar”.            |
 | `!m` / `!mensagem` | Envia o link do tópico por mensagem privada.      |
 | `!remind` / `!r`   | Agenda lembrete entre 1 minuto e 365 dias.        |
+| `!lembretes`       | Lista até dez lembretes pendentes do autor.       |
+| `!jogo`            | Mostra o próximo jogo confirmado do Botafogo.     |
+| `!agenda`          | Agenda cinco competições ou jogos do Botafogo.    |
+| `!tabela`          | Mostra o Botafogo e seus vizinhos na Série A.     |
 | `!tutorial`        | Publica a lista de comandos.                      |
 
 Parsing fica em `src/commands/parser.ts`, execução em `src/commands/execute.ts` e conteúdo em `src/commands/content.ts`. Comandos só são reconhecidos no início do comentário.
+
+O cliente `src/clients/football-schedule.ts` extrai e valida os dados estruturados das páginas públicas de agenda do ge. `!jogo` e `!agenda botafogo` usam a agenda do clube; `!agenda` e `!agenda amanhã` filtram Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca. O pacote `campeonato-brasileiro-api` permanece exclusivo para `!tabela`. Ambos os clientes usam timeout, retentativa e cache de cinco minutos. Como a fonte de agenda não oferece contrato de API, mantenha testes do parser e falhe explicitamente se a estrutura do HTML mudar.
 
 ## Persistência e retentativas
 
