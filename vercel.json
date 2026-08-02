@@ -1,15 +1,9 @@
 {
-    "version": 2,
-    "builds": [
-      {
-        "src": "bot.js",
-        "use": "@vercel/node"
-      }
-    ],
-    "routes": [
-      {
-        "src": "/(.*)",
-        "dest": "bot.js"
-      }
-    ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [{ "source": "/", "destination": "/api/health" }],
+  "functions": {
+    "api/jobs/run.ts": {
+      "maxDuration": 60
+    }
   }
+}
