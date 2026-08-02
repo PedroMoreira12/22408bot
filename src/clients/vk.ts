@@ -9,7 +9,10 @@ const TRANSIENT_VK_CODES = new Set([1, 6, 10]);
 export interface VkTopic {
   id: number;
   title: string;
+  created?: number;
+  created_by?: number;
   updated: number;
+  is_fixed?: number;
 }
 
 export interface VkComment {
@@ -94,10 +97,14 @@ export class VkClient {
     this.requestSpacingMs = options.requestSpacingMs ?? 350;
   }
 
-  async getTopics(offset = 0, count = 100): Promise<VkPage<VkTopic>> {
+  get groupId(): number {
+    return this.config.groupId;
+  }
+
+  async getTopics(offset = 0, count = 100, order: 1 | 2 | -1 | -2 = 1): Promise<VkPage<VkTopic>> {
     return this.call('board.getTopics', {
       group_id: this.config.groupId,
-      order: 1,
+      order,
       offset,
       count,
     });

@@ -1,4 +1,5 @@
 import type { VkClient, VkComment, VkGroup, VkProfile, VkTopic } from '../clients/vk.js';
+import { recordCommentActivities, recordTopicActivities } from '../activity/record.js';
 import { parseCommand } from '../commands/parser.js';
 import { CommandJob } from '../models/command-job.js';
 import { JobState } from '../models/job-state.js';
@@ -17,6 +18,7 @@ export interface PollStats {
   topicsScanned: number;
   commentsFound: number;
   commandsQueued: number;
+  activitiesRecorded: number;
   cursorsSeeded: number;
 }
 
@@ -30,6 +32,7 @@ export async function pollVkDiscussions(
   const since =
     state?.initializedAt && previousPollAt ? calculatePollingStart(previousPollAt, now) : undefined;
   const topics = await getRecentlyUpdatedTopics(vk, since, now, deadline);
+  let activitiesRecorded = await recordTopicActivities(vk.groupId, topics, { source: 'live' });
 
   if (!state?.initializedAt) {
     const cursorsSeeded = await seedTopicCursors(vk, topics, deadline);
@@ -43,6 +46,7 @@ export async function pollVkDiscussions(
       topicsScanned: topics.length,
       commentsFound: 0,
       commandsQueued: 0,
+      activitiesRecorded,
       cursorsSeeded,
     };
   }
@@ -57,11 +61,19 @@ export async function pollVkDiscussions(
     const result = await scanTopic(vk, topic, since, deadline);
     commentsFound += result.commentsFound;
     commandsQueued += result.commandsQueued;
+    activitiesRecorded += result.activitiesRecorded;
     topicsScanned += 1;
   }
 
   await JobState.updateOne({ _id: STATE_ID }, { $set: { lastSuccessfulPollAt: now } });
-  return { initialized: false, topicsScanned, commentsFound, commandsQueued, cursorsSeeded: 0 };
+  return {
+    initialized: false,
+    topicsScanned,
+    commentsFound,
+    commandsQueued,
+    activitiesRecorded,
+    cursorsSeeded: 0,
+  };
 }
 
 async function getRecentlyUpdatedTopics(
@@ -124,7 +136,7 @@ async function scanTopic(
   topic: VkTopic,
   since: Date,
   deadline: number,
-): Promise<{ commentsFound: number; commandsQueued: number }> {
+): Promise<{ commentsFound: number; commandsQueued: number; activitiesRecorded: number }> {
   const cursor = await TopicCursor.findOne({ topicId: String(topic.id) }).lean();
   const comments: VkComment[] = [];
   const profiles = new Map<number, string>();
@@ -158,6 +170,9 @@ async function scanTopic(
 
   let commandsQueued = 0;
   const ordered = comments.sort((left, right) => left.date - right.date || left.id - right.id);
+  const activitiesRecorded = await recordCommentActivities(vk.groupId, topic.id, ordered, {
+    source: 'live',
+  });
   for (const comment of ordered) {
     if (!parseCommand(comment.text)) continue;
     const result = await CommandJob.updateOne(
@@ -179,7 +194,7 @@ async function scanTopic(
   }
 
   if (latestComment) await saveCursor(topic.id, latestComment);
-  return { commentsFound: comments.length, commandsQueued };
+  return { commentsFound: comments.length, commandsQueued, activitiesRecorded };
 }
 
 function addProfiles(target: Map<number, string>, profiles: VkProfile[] | undefined): void {

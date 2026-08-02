@@ -14,6 +14,14 @@ O polling recupera no máximo as últimas 24 horas de atividade. Após uma inter
 
 Agenda e próximos jogos vêm das páginas públicas de agenda do ge; a tabela da Série A usa `campeonato-brasileiro-api`. As respostas são validadas antes do uso e mantidas em cache por cinco minutos. Nenhuma chave esportiva adicional é necessária.
 
+## Coleta de estatísticas
+
+O bot registra atividades públicas dos tópicos para uso futuro, mas ainda não oferece comandos de estatísticas. Comentários comuns e tópicos criados por usuários são armazenados como eventos idempotentes, separados por ano e dia no horário de São Paulo. O texto dos comentários, nomes e fotos não são armazenados.
+
+Depois do deploy desta versão, o cron inicia automaticamente um backfill gradual desde 01/01/2026. Ele usa limites pequenos por execução, não responde a comandos históricos e continua do último cursor após interrupções. A resposta de `POST /api/jobs/run` inclui `activityBackfill`; aguarde `status: completed` e monitore `failedTopics`.
+
+Os futuros `!stats` e `!top` só devem ser liberados depois do backfill, de ao menos 30 dias de coleta ao vivo e de uma auditoria do volume. Critérios, limitações e plano de agregação estão detalhados em `AGENTS.md`.
+
 ## Configuração
 
 1. Use Node.js 24 e execute `npm install`.

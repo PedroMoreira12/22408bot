@@ -7,6 +7,15 @@ const modelMocks = vi.hoisted(() => ({
   cursorFind: vi.fn(),
   cursorUpdate: vi.fn(),
 }));
+const activityMocks = vi.hoisted(() => ({
+  recordComments: vi.fn(),
+  recordTopics: vi.fn(),
+}));
+
+vi.mock('../src/activity/record.js', () => ({
+  recordCommentActivities: activityMocks.recordComments,
+  recordTopicActivities: activityMocks.recordTopics,
+}));
 
 vi.mock('../src/models/command-job.js', () => ({
   CommandJob: { updateOne: modelMocks.commandUpdate },
@@ -22,7 +31,11 @@ import type { VkClient } from '../src/clients/vk.js';
 import { pollVkDiscussions } from '../src/jobs/poll-vk.js';
 
 describe('pollVkDiscussions', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activityMocks.recordComments.mockResolvedValue(3);
+    activityMocks.recordTopics.mockResolvedValue(1);
+  });
 
   it('enfileira todos os comandos novos em ordem e ignora texto comum', async () => {
     const now = new Date();
@@ -53,12 +66,23 @@ describe('pollVkDiscussions', () => {
         { id: 2, first_name: 'Bia' },
       ],
     });
-    const vk = { getTopics, getComments } as unknown as VkClient;
+    const vk = { getTopics, getComments, groupId: 123 } as unknown as VkClient;
 
     const result = await pollVkDiscussions(vk, Date.now() + 10_000, now);
 
     expect(result.commentsFound).toBe(3);
     expect(result.commandsQueued).toBe(2);
+    expect(result.activitiesRecorded).toBe(4);
+    expect(activityMocks.recordComments).toHaveBeenCalledWith(
+      expect.any(Number),
+      7,
+      expect.arrayContaining([
+        expect.objectContaining({ id: 10 }),
+        expect.objectContaining({ id: 11 }),
+        expect.objectContaining({ id: 12 }),
+      ]),
+      { source: 'live' },
+    );
     expect(modelMocks.commandUpdate).toHaveBeenCalledTimes(2);
     expect(modelMocks.commandUpdate.mock.calls[0]?.[0]).toMatchObject({ commentId: '10' });
     expect(modelMocks.commandUpdate.mock.calls[1]?.[0]).toMatchObject({ commentId: '12' });
@@ -70,6 +94,7 @@ describe('pollVkDiscussions', () => {
     modelMocks.stateUpdate.mockResolvedValue({ acknowledged: true });
     modelMocks.cursorUpdate.mockResolvedValue({ acknowledged: true });
     const vk = {
+      groupId: 123,
       getTopics: vi.fn().mockResolvedValue({
         count: 1,
         items: [{ id: 7, title: 'Jogo', updated: Math.floor(now.getTime() / 1_000) }],
@@ -83,6 +108,9 @@ describe('pollVkDiscussions', () => {
     const result = await pollVkDiscussions(vk, Date.now() + 10_000, now);
     expect(result.initialized).toBe(true);
     expect(result.cursorsSeeded).toBe(1);
+    expect(result.activitiesRecorded).toBe(1);
+    expect(activityMocks.recordTopics).toHaveBeenCalledOnce();
+    expect(activityMocks.recordComments).not.toHaveBeenCalled();
     expect(modelMocks.commandUpdate).not.toHaveBeenCalled();
   });
 
@@ -118,7 +146,7 @@ describe('pollVkDiscussions', () => {
         },
       ],
     });
-    const vk = { getTopics, getComments } as unknown as VkClient;
+    const vk = { getTopics, getComments, groupId: 123 } as unknown as VkClient;
 
     const result = await pollVkDiscussions(vk, Date.now() + 10_000, now);
 

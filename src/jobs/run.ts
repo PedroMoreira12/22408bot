@@ -5,6 +5,7 @@ import { getConfig } from '../config.js';
 import { connectDatabase } from '../db.js';
 import { log } from '../lib/logger.js';
 import { acquireJobLease, releaseJobLease } from './lease.js';
+import { runActivityBackfill, type ActivityBackfillStats } from './backfill-activity.js';
 import { pollVkDiscussions, type PollStats } from './poll-vk.js';
 import { processPendingCommands } from './process-commands.js';
 import { processDueReminders } from './process-reminders.js';
@@ -17,6 +18,7 @@ export interface BotJobResult {
   poll?: PollStats;
   commands?: { completed: number; failed: number };
   reminders?: { sent: number; failed: number };
+  activityBackfill?: ActivityBackfillStats;
   durationMs: number;
 }
 
@@ -45,6 +47,14 @@ export async function runBotJob(): Promise<BotJobResult> {
 
     const commands = await processPendingCommands(vk, deadline, 25);
     const reminders = await processDueReminders(vk, deadline, 25);
+    let activityBackfill: ActivityBackfillStats | undefined;
+    if (Date.now() + 12_000 < deadline) {
+      try {
+        activityBackfill = await runActivityBackfill(vk, deadline);
+      } catch (error) {
+        log('error', 'activity_backfill.failed', { executionId, error });
+      }
+    }
     if (pollError instanceof Error) throw pollError;
     if (pollError) throw new Error('Falha desconhecida no polling', { cause: pollError });
 
@@ -54,6 +64,7 @@ export async function runBotJob(): Promise<BotJobResult> {
       ...(poll ? { poll } : {}),
       commands,
       reminders,
+      ...(activityBackfill ? { activityBackfill } : {}),
       durationMs: Date.now() - startedAt,
     };
     log('info', 'job.completed', { ...result });
