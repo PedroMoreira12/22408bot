@@ -16,6 +16,7 @@ const rawMatch = (id: number, competition: string, date = '2026-08-03') => ({
   startDate: date,
   startHour: '21:00:00',
   location: { popularName: 'Nilton Santos' },
+  liveWatchSources: [{ name: 'Premiere' }, { name: 'sportv' }, { name: 'Premiere' }],
 });
 
 describe('parser da agenda pública', () => {
@@ -30,6 +31,7 @@ describe('parser da agenda pública', () => {
         competition: 'Copa do Brasil',
         time: '21:00',
         venue: 'Nilton Santos',
+        broadcasts: ['Premiere', 'sportv'],
       }),
     ]);
   });

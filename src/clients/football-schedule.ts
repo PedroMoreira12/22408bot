@@ -14,6 +14,10 @@ const teamSchema = z.object({
   popularName: z.string(),
 });
 
+const liveWatchSourceSchema = z.object({
+  name: z.string(),
+});
+
 const rawMatchSchema = z.object({
   id: z.number(),
   moment: z.enum(['FUTURE', 'NOW', 'PAST']),
@@ -34,6 +38,7 @@ const rawMatchSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startHour: z.string().nullable(),
   location: z.object({ popularName: z.string().nullable() }).nullable().optional(),
+  liveWatchSources: z.array(liveWatchSourceSchema).nullable().optional(),
 });
 
 const teamPayloadSchema = z.object({ matches: z.array(rawMatchSchema) });
@@ -64,6 +69,7 @@ export interface FootballMatch {
   time: string | null;
   status: 'scheduled' | 'live' | 'finished';
   venue: string | null;
+  broadcasts: string[];
   homeTeam: FootballTeam;
   awayTeam: FootballTeam;
   score: { home: number | null; away: number | null };
@@ -207,6 +213,9 @@ function toMatch(raw: z.infer<typeof rawMatchSchema>, competition?: string): Foo
     time: raw.startHour?.slice(0, 5) ?? null,
     status: raw.moment === 'FUTURE' ? 'scheduled' : raw.moment === 'NOW' ? 'live' : 'finished',
     venue: raw.location?.popularName ?? null,
+    broadcasts: [
+      ...new Set((raw.liveWatchSources ?? []).map((source) => source.name.trim()).filter(Boolean)),
+    ],
     homeTeam: raw.firstContestant,
     awayTeam: raw.secondContestant,
     score: { home: raw.scoreboard.home, away: raw.scoreboard.away },

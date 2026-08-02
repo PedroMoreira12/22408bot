@@ -51,7 +51,7 @@ Centralize chamadas em `src/clients/vk.ts`. Use POST, timeout, envelope validado
 
 Parsing fica em `src/commands/parser.ts`, execução em `src/commands/execute.ts` e conteúdo em `src/commands/content.ts`. Comandos só são reconhecidos no início do comentário.
 
-O cliente `src/clients/football-schedule.ts` extrai e valida os dados estruturados das páginas públicas de agenda do ge. `!jogo` e `!agenda botafogo` usam a agenda do clube; `!agenda` e `!agenda amanhã` filtram Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca. O pacote `campeonato-brasileiro-api` permanece exclusivo para `!tabela`. Ambos os clientes usam timeout, retentativa e cache de cinco minutos. Como a fonte de agenda não oferece contrato de API, mantenha testes do parser e falhe explicitamente se a estrutura do HTML mudar.
+O cliente `src/clients/football-schedule.ts` extrai e valida os dados estruturados das páginas públicas de agenda do ge. `!jogo` e `!agenda botafogo` usam a agenda do clube; `!agenda` e `!agenda amanhã` filtram Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca. `!jogo` também exibe os nomes presentes em `liveWatchSources`; quando a fonte ainda não publicou os canais, responde que a transmissão não foi informada. O pacote `campeonato-brasileiro-api` permanece exclusivo para `!tabela`. Ambos os clientes usam timeout, retentativa e cache de cinco minutos. Como a fonte de agenda não oferece contrato de API, mantenha testes do parser e falhe explicitamente se a estrutura do HTML mudar.
 
 ## Persistência e retentativas
 

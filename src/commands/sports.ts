@@ -25,6 +25,13 @@ export function formatBotafogoGame(data: FootballSchedule, now = new Date()): st
       ? `🔴 Botafogo em campo — ${match.competition}`
       : `⚽ Próximo jogo do Botafogo — ${match.competition}`;
   const details = [formatMatch(match, true)];
+  details.push(
+    `📺 Onde assistir: ${
+      match.broadcasts.length > 0
+        ? formatNaturalList(match.broadcasts)
+        : 'transmissão ainda não informada'
+    }`,
+  );
   if (match.phase)
     details.push(`🏆 ${match.phase}${match.round ? ` — rodada ${match.round}` : ''}`);
   return [heading, ...details].join('\n');
@@ -189,4 +196,9 @@ function dateParts(
 
 function pad(value: number): string {
   return String(value).padStart(2, '0');
+}
+
+function formatNaturalList(items: string[]): string {
+  if (items.length < 2) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} e ${items.at(-1)}`;
 }

@@ -24,6 +24,7 @@ const match = (overrides: Partial<FootballMatch>): FootballMatch => ({
   time: '18:30',
   status: 'scheduled',
   venue: 'Maracanã',
+  broadcasts: [],
   homeTeam: footballTeam(262, 'Flamengo'),
   awayTeam: footballTeam(277, 'Santos'),
   score: { home: null, away: null },
@@ -85,6 +86,19 @@ describe('comandos esportivos', () => {
     expect(message).toContain('Próximo jogo do Botafogo — Copa do Brasil');
     expect(message).toContain('Botafogo x Fluminense');
     expect(message).toContain('Nilton Santos');
+    expect(message).toContain('📺 Onde assistir: transmissão ainda não informada');
+  });
+
+  it('informa os canais de transmissão do próximo jogo sem repetições', () => {
+    const withBroadcasts: FootballSchedule = {
+      matches: schedule.matches.map((item) =>
+        item.id === 2 ? { ...item, broadcasts: ['Premiere', 'sportv'] } : item,
+      ),
+    };
+
+    expect(formatBotafogoGame(withBroadcasts, now)).toContain(
+      '📺 Onde assistir: Premiere e sportv',
+    );
   });
 
   it('filtra a agenda de hoje, amanhã e do Botafogo', () => {
