@@ -65,6 +65,14 @@ export async function executeCommand(
     return cachedAuthorName;
   };
   const reply = async (message: string, suffix: string = command.kind): Promise<void> => {
+    if (
+      command.kind === 'top' ||
+      command.kind === 'sequence' ||
+      command.kind === 'retrospective' ||
+      command.kind === 'records'
+    ) {
+      message = formatActivityReply(command.kind, message);
+    }
     await vk.createComment(
       context.topicId,
       context.commentId,
@@ -350,7 +358,7 @@ function isAvailableActivityYear(year: number, now: Date): boolean {
   return Number.isInteger(year) && year >= 2026 && year <= currentYear;
 }
 
-function formatActivityStats(
+function formatLegacyActivityStats(
   stats: Awaited<ReturnType<typeof getActivityStats>>,
   year: number,
 ): string {
@@ -367,6 +375,90 @@ function formatActivityStats(
     `comandos: ${stats.commands}`,
     `primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '—'}`,
     `Ãºltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '—'}`,
+  ].join('\n');
+}
+
+void formatLegacyActivityStats;
+
+function formatActivityStats(
+  stats: Awaited<ReturnType<typeof getActivityStats>>,
+  year: number,
+): string {
+  if (stats.comments === 0 && stats.topics === 0) {
+    return `\u{1F4CA} N\u00e3o encontrei atividade sua em ${year}.`;
+  }
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    dateStyle: 'short',
+  });
+  return [
+    `\u{1F4CA} Suas estat\u00edsticas de ${year}:`,
+    `\u{1F4AC} Coment\u00e1rios: ${stats.comments}`,
+    `\u{1F4DD} T\u00f3picos criados: ${stats.topics}`,
+    `\u{1F4C5} Dias ativos: ${stats.activeDays}`,
+    `\u{1F916} Comandos: ${stats.commands}`,
+    `\u{1F680} Primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '\u2014'}`,
+    `\u{1F3C1} \u00daltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '\u2014'}`,
+  ].join('\\n');
+}
+
+function formatActivityReply(
+  kind: 'top' | 'sequence' | 'retrospective' | 'records',
+  message: string,
+): string {
+  const prefixEnd = message.indexOf('],') + 2;
+  if (prefixEnd < 2) return message;
+  const prefix = message.slice(0, prefixEnd);
+  const body = message.slice(prefixEnd).replace(/^\s*/u, '');
+  const year = body.match(/\b\d{4}\b/u)?.[0] ?? '';
+
+  if (kind === 'sequence') {
+    if (!body.includes('foi de')) return message;
+    const sequence = body.match(/foi de (\d+) dia/u)?.[1] ?? '0';
+    return `${prefix}\n\u{1F525} Sua maior sequ\u00eancia de dias ativos em ${year}: ${sequence} dia(s).`;
+  }
+
+  if (kind === 'top') {
+    const rankLines = body.split('\n').filter((line) => /^\d+\./u.test(line));
+    if (rankLines.length === 0) return message;
+    const entries = rankLines.map((line) => {
+      const match =
+        /^(\d+)\.\s+(.+?)\s+\S+\s+(\d+)\s+pts\s+\|\s+(\d+)\s+\S+\s+\|\s+(\d+)\s+dias/u.exec(line);
+      return match
+        ? `\u{1F3C5} ${match[1]}. ${match[2]} — ${match[3]} pts | ${match[4]} coment\u00e1rios | ${match[5]} dias ativos`
+        : `\u{1F3C5} ${line}`;
+    });
+    return `${prefix}\n\u{1F3C6} Ranking de atividade de ${year}:\n${entries.join('\n')}\n\u{1F4A1} Pontua\u00e7\u00e3o limitada por dia para reduzir spam.`;
+  }
+
+  if (kind === 'retrospective') {
+    if (!body.includes('retrospectiva da comunidade')) return message;
+    const values = [...body.matchAll(/:\s*(\d+)/gu)].map((match) => match[1]);
+    const busiestDate = body.match(/\b\d{2}\/\d{2}\/\d{4}\b/u)?.[0] ?? '—';
+    return [
+      prefix,
+      `\u{1F4CA} Retrospectiva da comunidade em ${year}:`,
+      `\u{1F465} Participantes: ${values[0] ?? 0}`,
+      `\u{1F4AC} Coment\u00e1rios: ${values[1] ?? 0}`,
+      `\u{1F4DD} T\u00f3picos criados: ${values[2] ?? 0}`,
+      `\u{1F4C5} Dias ativos: ${values[3] ?? 0}`,
+      `\u{1F916} Comandos: ${values[4] ?? 0}`,
+      `\u{1F525} Dia mais movimentado: ${busiestDate} (${values[5] ?? 0} atividades)`,
+    ].join('\n');
+  }
+
+  if (!body.includes('recordes de atividade')) return message;
+  const records = body
+    .split('\n')
+    .slice(1)
+    .map((line) => /:\s*(.+?)\s+\((\d+)\)/u.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null);
+  return [
+    prefix,
+    `\u{1F3C6} Recordes de atividade em ${year}:`,
+    `\u{1F4AC} Mais coment\u00e1rios: ${records[0]?.[1] ?? '—'} (${records[0]?.[2] ?? 0})`,
+    `\u{1F4DD} Mais t\u00f3picos criados: ${records[1]?.[1] ?? '—'} (${records[1]?.[2] ?? 0})`,
+    `\u{1F525} Maior sequ\u00eancia: ${records[2]?.[1] ?? '—'} (${records[2]?.[2] ?? 0} dias)`,
   ].join('\n');
 }
 
