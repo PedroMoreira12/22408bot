@@ -399,7 +399,7 @@ function formatActivityStats(
     `\u{1F916} Comandos: ${stats.commands}`,
     `\u{1F680} Primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '\u2014'}`,
     `\u{1F3C1} \u00daltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '\u2014'}`,
-  ].join('\\n');
+  ].join('\n');
 }
 
 function formatActivityReply(
@@ -451,7 +451,7 @@ function formatActivityReply(
   const records = body
     .split('\n')
     .slice(1)
-    .map((line) => /:\s*(.+?)\s+\((\d+)\)/u.exec(line))
+    .map((line) => /:\s*(.+?)\s+\((\d+)(?:\s+[^)]*)?\)/u.exec(line))
     .filter((match): match is RegExpExecArray => match !== null);
   return [
     prefix,
