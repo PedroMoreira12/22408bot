@@ -10,6 +10,11 @@ export type ParsedCommand =
   | { kind: 'upem' }
   | { kind: 'private-message' }
   | { kind: 'tutorial' }
+  | { kind: 'stats'; year?: number }
+  | { kind: 'top'; limit: number; year?: number }
+  | { kind: 'sequence'; year?: number }
+  | { kind: 'retrospective'; year?: number }
+  | { kind: 'records'; year?: number }
   | { kind: 'game' }
   | { kind: 'agenda'; scope: AgendaScope }
   | { kind: 'invalid-agenda' }
@@ -63,6 +68,43 @@ export function parseCommand(text: string): ParsedCommand | null {
       return { kind: 'private-message' };
     case 'tutorial':
       return { kind: 'tutorial' };
+    case 'stats':
+    case 'estatisticas':
+    case 'estatísticas':
+      return parseYearOnly(argument, 'stats');
+    case 'sequencia':
+    case 'sequência':
+      return parseYearOnly(argument, 'sequence');
+    case 'retrospectiva':
+      return parseYearOnly(argument, 'retrospective');
+    case 'recordes':
+    case 'recordesdoano':
+      return parseYearOnly(argument, 'records');
+    case 'top':
+      return parseTop(argument);
+    case 'top1':
+    case 'top2':
+    case 'top3':
+    case 'top4':
+    case 'top5':
+    case 'top6':
+    case 'top7':
+    case 'top8':
+    case 'top9':
+    case 'top10':
+    case 'top11':
+    case 'top12':
+    case 'top13':
+    case 'top14':
+    case 'top15':
+    case 'top16':
+    case 'top17':
+    case 'top18':
+    case 'top19':
+    case 'top20': {
+      const limit = Number(name.slice(3));
+      return argument ? parseTop(`${limit} ${argument}`) : { kind: 'top', limit };
+    }
     case 'jogo':
     case 'proximo':
     case 'próximo':
@@ -86,6 +128,29 @@ export function parseCommand(text: string): ParsedCommand | null {
     default:
       return null;
   }
+}
+
+function parseYearOnly(
+  argument: string,
+  kind: 'stats' | 'sequence' | 'retrospective' | 'records',
+): ParsedCommand {
+  if (!argument) return { kind };
+  if (!/^\d{4}$/u.test(argument)) return { kind, year: Number.NaN };
+  return { kind, year: Number(argument) };
+}
+
+function parseTop(argument: string): ParsedCommand {
+  if (!argument) return { kind: 'top', limit: 20 };
+  const parts = argument.split(/\s+/u);
+  if (parts.length > 2 || parts.some((part) => !/^\d{1,4}$/u.test(part))) {
+    return { kind: 'top', limit: Number.NaN };
+  }
+  const first = Number(parts[0]);
+  const second = parts[1] ? Number(parts[1]) : undefined;
+  if (parts.length === 1 && first >= 1900 && first <= 2100) {
+    return { kind: 'top', limit: 20, year: first };
+  }
+  return { kind: 'top', limit: first, ...(second !== undefined ? { year: second } : {}) };
 }
 
 function parseAgenda(argument: string): ParsedCommand {

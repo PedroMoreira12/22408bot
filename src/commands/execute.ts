@@ -6,7 +6,18 @@ import {
   type FootballSchedule,
 } from '../clients/football-schedule.js';
 import { VkApiError, type VkClient } from '../clients/vk.js';
+import {
+  formatDateKey,
+  getCommunityRecordCandidates,
+  getCommunityRetrospective,
+} from '../activity/community-stats.js';
 import { Reminder } from '../models/reminder.js';
+import {
+  getActiveDates,
+  getActivityRanking,
+  getActivityStats,
+  longestActiveSequence,
+} from '../activity/stats.js';
 import {
   antiGsdMessages,
   antiZicaMessages,
@@ -134,6 +145,137 @@ export async function executeCommand(
     case 'tutorial':
       await reply(tutorialMessage);
       return;
+    case 'stats': {
+      const now = dependencies.now?.() ?? new Date();
+      const year = resolveYear(command.year, now);
+      if (!isAvailableActivityYear(year, now)) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
+        );
+        return;
+      }
+      const stats = await getActivityStats(vk.groupId, context.userId, year);
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\n${formatActivityStats(stats, year)}`,
+      );
+      return;
+    }
+    case 'top': {
+      const now = dependencies.now?.() ?? new Date();
+      const year = resolveYear(command.year, now);
+      if (!isAvailableActivityYear(year, now)) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
+        );
+        return;
+      }
+      if (!Number.isInteger(command.limit) || command.limit < 1 || command.limit > 20) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], use !top, !top5 ou !top 5 2026 âœˆï¸`,
+        );
+        return;
+      }
+      const candidates = await getActivityRanking(vk.groupId, year, command.limit);
+      const memberships = await vk.getUserMemberships(
+        candidates.map((entry) => Number(entry.userId)),
+      );
+      const visible = candidates
+        .filter((entry) => memberships.get(Number(entry.userId)) === true)
+        .slice(0, command.limit);
+      if (visible.length === 0) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], ainda nÃ£o hÃ¡ dados suficientes para o ranking de ${year} âœˆï¸`,
+        );
+        return;
+      }
+      const names = await Promise.all(
+        visible.map((entry) => vk.getUserFirstName(Number(entry.userId))),
+      );
+      const lines = visible.map(
+        (entry, index) =>
+          `${index + 1}. ${names[index]} â€” ${entry.score} pts | ${entry.comments} comentÃ¡rios | ${entry.activeDays} dias ativos`,
+      );
+      await reply(
+        `[post${context.commentId}|${await authorName()}], ranking de atividade de ${year}:\n${lines.join('\n')}\nPontuaÃ§Ã£o: atÃ© 20 comentÃ¡rios e 5 tÃ³picos por dia.`,
+      );
+      return;
+    }
+    case 'sequence': {
+      const now = dependencies.now?.() ?? new Date();
+      const year = resolveYear(command.year, now);
+      if (!isAvailableActivityYear(year, now)) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
+        );
+        return;
+      }
+      const sequence = longestActiveSequence(
+        await getActiveDates(vk.groupId, context.userId, year),
+      );
+      await reply(
+        `[post${context.commentId}|${await authorName()}], sua maior sequÃªncia de dias ativos em ${year} foi de ${sequence} dia(s) âœˆï¸`,
+      );
+      return;
+    }
+    case 'retrospective': {
+      const now = dependencies.now?.() ?? new Date();
+      const year = resolveYear(command.year, now);
+      if (!isAvailableActivityYear(year, now)) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
+        );
+        return;
+      }
+      const retrospective = await getCommunityRetrospective(vk.groupId, year);
+      if (retrospective.comments === 0 && retrospective.topics === 0) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ atividade registrada em ${year} âœˆï¸`,
+        );
+        return;
+      }
+      const busiest = retrospective.busiestDay
+        ? `${formatDateKey(retrospective.busiestDay.dateKey)} (${retrospective.busiestDay.events} atividades)`
+        : '—';
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\nretrospectiva da comunidade em ${year}:\nparticipantes: ${retrospective.participants}\ncomentÃ¡rios: ${retrospective.comments}\ntÃ³picos criados: ${retrospective.topics}\ndias ativos: ${retrospective.activeDays}\ncomandos: ${retrospective.commands}\ndia mais movimentado: ${busiest}`,
+      );
+      return;
+    }
+    case 'records': {
+      const now = dependencies.now?.() ?? new Date();
+      const year = resolveYear(command.year, now);
+      if (!isAvailableActivityYear(year, now)) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
+        );
+        return;
+      }
+      const candidates = await getCommunityRecordCandidates(vk.groupId, year);
+      const memberships = await vk.getUserMemberships(
+        candidates.map((entry) => Number(entry.userId)),
+      );
+      const members = candidates.filter((entry) => memberships.get(Number(entry.userId)) === true);
+      const mostComments = members[0];
+      const mostTopics = [...members].sort(
+        (a, b) => b.topics - a.topics || b.comments - a.comments,
+      )[0];
+      const longestSequence = members
+        .map((entry) => ({ entry, sequence: longestActiveSequence(entry.dateKeys) }))
+        .sort((a, b) => b.sequence - a.sequence || b.entry.comments - a.entry.comments)[0];
+      if (!mostComments || !mostTopics || !longestSequence) {
+        await reply(
+          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados suficientes para os recordes de ${year} âœˆï¸`,
+        );
+        return;
+      }
+      const ids = [mostComments.userId, mostTopics.userId, longestSequence.entry.userId];
+      const names = await Promise.all(ids.map((id) => vk.getUserFirstName(Number(id))));
+      const [commentsName, topicsName, sequenceName] = names;
+      await reply(
+        `[post${context.commentId}|${await authorName()}],\nrecordes de atividade em ${year}:\nmais comentÃ¡rios: ${commentsName} (${mostComments.comments})\nmais tÃ³picos criados: ${topicsName} (${mostTopics.topics})\nmaior sequÃªncia: ${sequenceName} (${longestSequence.sequence} dias)`,
+      );
+      return;
+    }
     case 'game': {
       const data = await (dependencies.getBotafogoSchedule ?? getBotafogoSchedule)();
       await reply(
@@ -190,6 +332,42 @@ export async function executeCommand(
       return;
     }
   }
+}
+
+function resolveYear(year: number | undefined, now = new Date()): number {
+  return (
+    year ??
+    Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', year: 'numeric' }).format(
+        now,
+      ),
+    )
+  );
+}
+
+function isAvailableActivityYear(year: number, now: Date): boolean {
+  const currentYear = resolveYear(undefined, now);
+  return Number.isInteger(year) && year >= 2026 && year <= currentYear;
+}
+
+function formatActivityStats(
+  stats: Awaited<ReturnType<typeof getActivityStats>>,
+  year: number,
+): string {
+  if (stats.comments === 0 && stats.topics === 0) return `nÃ£o encontrei atividade sua em ${year}.`;
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    dateStyle: 'short',
+  });
+  return [
+    `suas estatÃ­sticas de ${year}:`,
+    `comentÃ¡rios: ${stats.comments}`,
+    `tÃ³picos criados: ${stats.topics}`,
+    `dias ativos: ${stats.activeDays}`,
+    `comandos: ${stats.commands}`,
+    `primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '—'}`,
+    `Ãºltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '—'}`,
+  ].join('\n');
 }
 
 function formatReminderDate(remindAt: Date, now: Date): string {

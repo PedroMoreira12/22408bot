@@ -94,13 +94,12 @@ Limitações inevitáveis: conteúdo ou tópicos apagados não podem ser recuper
 
 ### Próximos passos
 
-Só iniciar a implementação dos comandos quando:
+Com o backfill concluído, os comandos de estatísticas podem ser implementados quando:
 
 1. `activityBackfill.status` estiver `completed` ou todas as causas de `completed_with_errors` tiverem sido avaliadas;
-2. houver pelo menos 30 dias de coleta ao vivo após este deploy;
-3. o ledger tiver volume suficiente para um ranking útil — referência inicial: ao menos 1.000 eventos válidos e 30 membros distintos;
-4. uma consulta de auditoria confirmar ausência de duplicatas, anos corretos e distribuição plausível por usuário;
-5. a comunidade aprovar uma fórmula transparente e resistente a spam.
+2. o ledger tiver volume suficiente para um ranking útil — referência inicial: ao menos 1.000 eventos válidos e 30 membros distintos;
+3. uma consulta de auditoria confirmar ausência de duplicatas, anos corretos e distribuição plausível por usuário;
+4. a comunidade aprovar uma fórmula transparente e resistente a spam.
 
 Na etapa futura, criar agregação anual materializada a partir de `ActivityEvent`, sem alterar o ledger. Sugestão inicial: totais brutos de comentários e tópicos; dias ativos distintos; primeira e última atividade; comandos separados; pontuação diária limitada. `!stats [ano]` deve consultar somente o autor, e `!top N [ano]` deve limitar `N` entre 1 e 20, buscar perfis em lote e excluir contas que já não sejam membros. Todas as respostas devem informar o ano e a data inicial da cobertura.
 

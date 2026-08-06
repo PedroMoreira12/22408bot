@@ -128,6 +128,16 @@ export class VkClient {
     return first.first_name;
   }
 
+  async getUserMemberships(userIds: number[]): Promise<Map<number, boolean>> {
+    if (userIds.length === 0) return new Map();
+    const result = await this.call<Array<{ user_id: number; member: number }> | number>(
+      'groups.isMember',
+      { group_id: this.config.groupId, user_ids: userIds.join(',') },
+    );
+    if (typeof result === 'number') return new Map([[userIds[0]!, result === 1]]);
+    return new Map(result.map((entry) => [entry.user_id, entry.member === 1]));
+  }
+
   async createComment(
     topicId: number,
     replyToCommentId: number,

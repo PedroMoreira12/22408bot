@@ -12,8 +12,22 @@ describe('parseCommand', () => {
     ['!m', 'private-message'],
     ['!mensagem', 'private-message'],
     ['!tutorial', 'tutorial'],
+    ['!stats', 'stats'],
+    ['!sequencia', 'sequence'],
+    ['!retrospectiva', 'retrospective'],
+    ['!recordes', 'records'],
   ])('reconhece %s', (input, kind) => {
     expect(parseCommand(input)?.kind).toBe(kind);
+  });
+
+  it('usa defaults e aceita limites compactos no ranking', () => {
+    expect(parseCommand('!top')).toEqual({ kind: 'top', limit: 20 });
+    expect(parseCommand('!top 5')).toEqual({ kind: 'top', limit: 5 });
+    expect(parseCommand('!top5')).toEqual({ kind: 'top', limit: 5 });
+    expect(parseCommand('!top20')).toEqual({ kind: 'top', limit: 20 });
+    expect(parseCommand('!top 2024')).toEqual({ kind: 'top', limit: 20, year: 2024 });
+    expect(parseCommand('!top 5 2025')).toEqual({ kind: 'top', limit: 5, year: 2025 });
+    expect(parseCommand('!stats 2025')).toEqual({ kind: 'stats', year: 2025 });
   });
 
   it('reconhece citação apenas no início', () => {

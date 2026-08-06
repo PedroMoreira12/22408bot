@@ -42,6 +42,21 @@ export const tutorialMessage = `
 - **\`!lembretes\`**
    Lista seus lembretes pendentes.
 
+- **\`!stats [ano]\`**
+   Mostra suas estatÃ­sticas de atividade no ano informado.
+
+- **\`!top [N] [ano]\`**
+   Mostra o ranking dos usuÃ¡rios mais ativos. O padrÃ£o Ã© top 20 do ano atual.
+
+- **\`!sequencia [ano]\`**
+   Mostra sua maior sequÃªncia de dias ativos.
+
+- **\`!retrospectiva [ano]\`**
+   Mostra o resumo de atividade da comunidade no ano informado.
+
+- **\`!recordes [ano]\`**
+   Mostra os recordes de atividade da comunidade no ano informado.
+
 ---
 `;
 
