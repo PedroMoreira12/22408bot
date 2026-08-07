@@ -69,7 +69,8 @@ export async function executeCommand(
       command.kind === 'top' ||
       command.kind === 'sequence' ||
       command.kind === 'retrospective' ||
-      command.kind === 'records'
+      command.kind === 'records' ||
+      command.kind === 'stats'
     ) {
       message = formatActivityReply(command.kind, message);
     }
@@ -163,8 +164,11 @@ export async function executeCommand(
         return;
       }
       const stats = await getActivityStats(vk.groupId, context.userId, year);
+      const sequence = longestActiveSequence(
+        await getActiveDates(vk.groupId, context.userId, year),
+      );
       await reply(
-        `[post${context.commentId}|${await authorName()}],\n${formatActivityStats(stats, year)}`,
+        `[post${context.commentId}|${await authorName()}],\n${formatActivityStats(stats, year, sequence)}`,
       );
       return;
     }
@@ -383,6 +387,7 @@ void formatLegacyActivityStats;
 function formatActivityStats(
   stats: Awaited<ReturnType<typeof getActivityStats>>,
   year: number,
+  sequence: number,
 ): string {
   if (stats.comments === 0 && stats.topics === 0) {
     return `\u{1F4CA} N\u00e3o encontrei atividade sua em ${year}.`;
@@ -398,12 +403,12 @@ function formatActivityStats(
     `\u{1F4C5} Dias ativos: ${stats.activeDays}`,
     `\u{1F916} Comandos: ${stats.commands}`,
     `\u{1F680} Primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '\u2014'}`,
-    `\u{1F3C1} \u00daltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '\u2014'}`,
+    `\u{1F525} Maior sequ\u00eancia: ${sequence} dia(s)`,
   ].join('\n');
 }
 
 function formatActivityReply(
-  kind: 'top' | 'sequence' | 'retrospective' | 'records',
+  kind: 'stats' | 'top' | 'sequence' | 'retrospective' | 'records',
   message: string,
 ): string {
   const prefixEnd = message.indexOf('],') + 2;
@@ -411,6 +416,23 @@ function formatActivityReply(
   const prefix = message.slice(0, prefixEnd);
   const body = message.slice(prefixEnd).replace(/^\s*/u, '');
   const year = body.match(/\b\d{4}\b/u)?.[0] ?? '';
+
+  if (body.includes('dados de atividade para')) {
+    return `${prefix}\n\u26a0\ufe0f N\u00e3o h\u00e1 dados de atividade para ${year}. A cobertura dispon\u00edvel come\u00e7a em 2026 e vai at\u00e9 o ano atual.`;
+  }
+  if (body.includes('use !top')) {
+    return `${prefix}\n\u2139\ufe0f Use !top, !top5 ou !top 5 2026.`;
+  }
+  if (body.includes('dados suficientes para o ranking')) {
+    return `${prefix}\n\u2139\ufe0f Ainda n\u00e3o h\u00e1 dados suficientes para o ranking de ${year}.`;
+  }
+  if (body.includes('atividade registrada')) {
+    return `${prefix}\n\u2139\ufe0f N\u00e3o h\u00e1 atividade registrada em ${year}.`;
+  }
+  if (body.includes('dados suficientes para os recordes')) {
+    return `${prefix}\n\u2139\ufe0f N\u00e3o h\u00e1 dados suficientes para os recordes de ${year}.`;
+  }
+  if (kind === 'stats') return message;
 
   if (kind === 'sequence') {
     if (!body.includes('foi de')) return message;
