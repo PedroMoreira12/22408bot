@@ -1,64 +1,43 @@
-export const tutorialMessage = `
-🔥 Comandos do Pimpão Bot 🤖🧙‍♂️  
-## Todos os comandos devem ser iniciados com o ponto de exclamação (\`!\`).
+// A VK não interpreta Markdown em comentários de tópicos; use apenas texto simples e emojis.
+export const tutorialMessage = `🔥 Comandos do Pimpão Bot 🤖
+Todos começam com ! no início do comentário.
 
-### 📋 **Lista de Comandos**  
+⚽ JOGOS
+!jogo — próximo jogo do Botafogo, com canais e contagem regressiva
+!agenda — jogos de hoje da Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca
+!agenda amanhã | sábado | 25/10 | semana | botafogo — outras datas ou só o Botafogo
+!resultado — último jogo do Botafogo, com os gols
+!escalacao — escalação do próximo jogo (ou a última, se ainda não saiu)
+!tabela — Botafogo e vizinhos na Série A
+!rodada — jogos da rodada atual da Série A
+!avisar — marco você 30 min antes do próximo jogo (!avisar cancelar para desistir)
 
-- **\`camisa7\`**  
-   Mostra a contagem atualizada de sócios do plano * Camisa 7 *.
+🎯 BOLÃO
+!palpite 2x1 — palpite para o próximo jogo, com os gols do mandante primeiro
+!palpite — mostra o seu palpite
+!bolao [ano] — ranking: placar exato vale 3 pontos; vencedor ou empate vale 1
 
-- **\`c [mensagem]\`**  
-   Cita um usuário no tópico, com a opção de incluir uma mensagem personalizada.
+📊 COMUNIDADE
+!stats [ano] — suas estatísticas de atividade
+!top [N] [ano] — ranking dos mais ativos (ex.: !top5 ou !top 5 2026)
+!sequencia [ano] — sua maior sequência de dias ativos
+!retrospectiva [ano] — resumo da comunidade no ano
+!recordes [ano] — recordes de atividade do ano
+!camisa7 — sócios do plano Camisa 7 e a variação da semana
 
-- **\`gsd\`**  
-   Agradece o * ritual do mago Duds * pela magia da GSD.
+⏰ LEMBRETES
+!r 10 minutos (ou horas, dias, meses) — marco você depois do tempo pedido
+!lembretes — seus lembretes e avisos de jogo pendentes
 
-- **\`antizica\`**  
-   Elimina energias negativas e afasta qualquer tentativa de *zica*.
+✈️ OUTROS
+!c [mensagem] — cita você com uma mensagem
+!gsd — agradece o ritual do mago Duds pela magia da GSD
+!antizica — afasta qualquer tentativa de zica
+!mongol — resposta anti-GSD
+!upem — link do tópico das coisas que você só conhece pela comunidade
+!m — envia o link do tópico por mensagem privada (siga a página do bot e mande uma mensagem para ela antes)
 
-- **\`mongol\`**  
-   De forma amigável e descontraída, lembra que o usuário mencionado *é meio mongolóide*.  
-
-- **\`upem\`**  
-   Envia o link para o tópico das coisas que "você só conhece pela comunidade".
-
-- **\`remind\` ou \`!r [tempo]\`**  
-   Cria um lembrete e cita você após o tempo especificado.  
-   **Exemplo:** \`!r 10 dias\`  
-
-- **\`mensagem\` ou \`!m\`**  
-   Envia uma mensagem privada com o **link** e **título do tópico**.  
-   > * Importante: * Para usar este comando, você precisa seguir a página do bot e enviar uma mensagem para ativá-lo.
-
-- **\`!jogo\`**
-   Mostra o próximo jogo confirmado do Botafogo, independentemente da competição.
-
-- **\`!agenda\`, \`!agenda amanhã\` ou \`!agenda botafogo\`**
-   Mostra a agenda da Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca.
-
-- **\`!tabela\`**
-   Mostra a posição do Botafogo e os times próximos na tabela.
-
-- **\`!lembretes\`**
-   Lista seus lembretes pendentes.
-
-- **\`!stats [ano]\`**
-   Mostra suas estatÃ­sticas de atividade no ano informado.
-
-- **\`!top [N] [ano]\`**
-   Mostra o ranking dos usuÃ¡rios mais ativos. O padrÃ£o Ã© top 20 do ano atual.
-
-- **\`!sequencia [ano]\`**
-   Mostra sua maior sequÃªncia de dias ativos.
-
-- **\`!retrospectiva [ano]\`**
-   Mostra o resumo de atividade da comunidade no ano informado.
-
-- **\`!recordes [ano]\`**
-   Mostra os recordes de atividade da comunidade no ano informado.
-
----
-`;
+ℹ️ Comandos de consulta têm intervalo de 1 minuto por pessoa.`;
 
 export const gsdMessages = ['Gracias Señor Duds!'] as const;
 export const antiZicaMessages = ['🤖 ¡AntiZica ativado!'] as const;

@@ -1,8 +1,9 @@
 import type { VkClient } from '../clients/vk.js';
+import { commandCooldown, type CommandCooldown } from '../commands/cooldown.js';
 import { executeCommand } from '../commands/execute.js';
 import { parseCommand } from '../commands/parser.js';
 import { log } from '../lib/logger.js';
-import { CommandJob } from '../models/command-job.js';
+import { CommandJob, type CommandJobRecord } from '../models/command-job.js';
 
 const MAX_ATTEMPTS = 10;
 const LEASE_MILLISECONDS = 60_000;
@@ -11,8 +12,9 @@ export async function processPendingCommands(
   vk: VkClient,
   deadline: number,
   limit = 25,
-): Promise<{ completed: number; failed: number }> {
+): Promise<{ completed: number; skipped: number; failed: number }> {
   let completed = 0;
+  let skipped = 0;
   let failed = 0;
 
   for (let index = 0; index < limit && Date.now() < deadline; index += 1) {
@@ -40,6 +42,12 @@ export async function processPendingCommands(
 
     try {
       const command = parseCommand(job.text);
+      const cooldown = command ? commandCooldown(command) : null;
+      if (cooldown && (await isCoolingDown(job, cooldown, now))) {
+        await markCompleted(job._id, { commandKey: cooldown.key, skippedReason: 'cooldown' });
+        skipped += 1;
+        continue;
+      }
       if (command) {
         await executeCommand(
           command,
@@ -53,13 +61,7 @@ export async function processPendingCommands(
           { vk },
         );
       }
-      await CommandJob.updateOne(
-        { _id: job._id, status: 'processing' },
-        {
-          $set: { status: 'completed', completedAt: new Date() },
-          $unset: { leaseUntil: 1, lastError: 1 },
-        },
-      );
+      await markCompleted(job._id, cooldown ? { commandKey: cooldown.key } : {});
       completed += 1;
     } catch (error) {
       await recordFailure(job._id, job.attempts, error);
@@ -73,7 +75,37 @@ export async function processPendingCommands(
     }
   }
 
-  return { completed, failed };
+  return { completed, skipped, failed };
+}
+
+/** Verifica se o autor já recebeu a mesma consulta dentro do intervalo de cooldown. */
+async function isCoolingDown(
+  job: Pick<CommandJobRecord, 'userId'> & { _id: unknown },
+  cooldown: CommandCooldown,
+  now: Date,
+): Promise<boolean> {
+  const recent = await CommandJob.exists({
+    _id: { $ne: job._id },
+    userId: job.userId,
+    commandKey: cooldown.key,
+    status: 'completed',
+    skippedReason: { $exists: false },
+    completedAt: { $gte: new Date(now.getTime() - cooldown.milliseconds) },
+  });
+  return recent !== null;
+}
+
+async function markCompleted(
+  id: unknown,
+  fields: { commandKey?: string; skippedReason?: string },
+): Promise<void> {
+  await CommandJob.updateOne(
+    { _id: id, status: 'processing' },
+    {
+      $set: { status: 'completed', completedAt: new Date(), ...fields },
+      $unset: { leaseUntil: 1, lastError: 1 },
+    },
+  );
 }
 
 async function recordFailure(id: unknown, attempts: number, error: unknown): Promise<void> {
@@ -85,6 +117,7 @@ async function recordFailure(id: unknown, attempts: number, error: unknown): Pro
         status: terminal ? 'failed' : 'pending',
         nextAttemptAt: nextRetryDate(attempts),
         lastError: errorMessage(error),
+        ...(terminal ? { failedAt: new Date() } : {}),
       },
       $unset: { leaseUntil: 1 },
     },

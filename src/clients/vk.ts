@@ -5,6 +5,7 @@ import { withRetry } from '../lib/retry.js';
 
 const VK_API_BASE_URL = 'https://api.vk.com/method/';
 const TRANSIENT_VK_CODES = new Set([1, 6, 10]);
+const USERS_GET_BATCH_SIZE = 500;
 
 export interface VkTopic {
   id: number;
@@ -122,10 +123,23 @@ export class VkClient {
   }
 
   async getUserFirstName(userId: number): Promise<string> {
-    const users = await this.call<Array<{ first_name: string }>>('users.get', { user_ids: userId });
-    const first = users[0];
-    if (!first?.first_name) throw new Error(`Usuário VK ${userId} não encontrado`);
-    return first.first_name;
+    const name = (await this.getUserFirstNames([userId])).get(userId);
+    if (!name) throw new Error(`Usuário VK ${userId} não encontrado`);
+    return name;
+  }
+
+  /** Busca vários nomes em uma única chamada de `users.get`. */
+  async getUserFirstNames(userIds: number[]): Promise<Map<number, string>> {
+    const unique = [...new Set(userIds)].filter((id) => id > 0);
+    const names = new Map<number, string>();
+    for (let start = 0; start < unique.length; start += USERS_GET_BATCH_SIZE) {
+      const batch = unique.slice(start, start + USERS_GET_BATCH_SIZE);
+      const users = await this.call<Array<{ id: number; first_name?: string }>>('users.get', {
+        user_ids: batch.join(','),
+      });
+      for (const user of users) if (user.first_name) names.set(user.id, user.first_name);
+    }
+    return names;
   }
 
   async getUserMemberships(userIds: number[]): Promise<Map<number, boolean>> {
@@ -138,16 +152,17 @@ export class VkClient {
     return new Map(result.map((entry) => [entry.user_id, entry.member === 1]));
   }
 
+  /** Publica no tópico; com `replyToCommentId` nulo, o comentário não é uma resposta. */
   async createComment(
     topicId: number,
-    replyToCommentId: number,
+    replyToCommentId: number | null,
     message: string,
     operationId: string,
   ): Promise<number> {
     return this.call('board.createComment', {
       group_id: this.config.groupId,
       topic_id: topicId,
-      reply_to_comment: replyToCommentId,
+      ...(replyToCommentId === null ? {} : { reply_to_comment: replyToCommentId }),
       message,
       guid: deterministicGuid(operationId),
     });

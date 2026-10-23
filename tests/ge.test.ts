@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  parseGeDailyScheduleHtml,
-  parseGeTeamScheduleHtml,
-} from '../src/clients/football-schedule.js';
+import { parseGeDailyScheduleHtml, parseGeTeamScheduleHtml } from '../src/clients/ge.js';
 
 const rawMatch = (id: number, competition: string, date = '2026-08-03') => ({
   id,
@@ -16,22 +13,32 @@ const rawMatch = (id: number, competition: string, date = '2026-08-03') => ({
   startDate: date,
   startHour: '21:00:00',
   location: { popularName: 'Nilton Santos' },
-  liveWatchSources: [{ name: 'Premiere' }, { name: 'sportv' }, { name: 'Premiere' }],
+  liveWatchSources: [
+    { name: 'Premiere' },
+    { name: 'sportv' },
+    { name: 'Premiere' },
+    { name: 'Cartola' },
+  ],
 });
 
-describe('parser da agenda pública', () => {
-  it('extrai a agenda específica do Botafogo', () => {
+describe('parser da agenda pública do ge', () => {
+  it('extrai a agenda do Botafogo e remove itens que não são transmissões', () => {
     const payload = { matches: [rawMatch(1, 'Copa do Brasil')], team: { id: 263 } };
     const html = `<script>window.byTeamScheduleTeamData = ${JSON.stringify(payload)}; window.x = [];</script>`;
 
-    const schedule = parseGeTeamScheduleHtml(html);
-    expect(schedule.matches).toEqual([
+    expect(parseGeTeamScheduleHtml(html)).toEqual([
       expect.objectContaining({
-        id: 1,
+        id: 'ge:1',
         competition: 'Copa do Brasil',
+        date: '2026-08-03',
         time: '21:00',
+        kickoffAt: '2026-08-04T00:00:00.000Z',
         venue: 'Nilton Santos',
-        broadcasts: ['Premiere', 'sportv'],
+        broadcasts: [
+          { name: 'Premiere', kind: 'pay-tv' },
+          { name: 'sportv', kind: 'pay-tv' },
+        ],
+        homeTeam: { id: 'ge:263', name: 'Botafogo', isBotafogo: true },
       }),
     ]);
   });
@@ -58,13 +65,13 @@ describe('parser da agenda pública', () => {
     };
     const html = `<script>window.dataSportsSchedule = {\n    sport: ${JSON.stringify(payload)} };</script>`;
 
-    const names = parseGeDailyScheduleHtml(html).matches.map((match) => match.competition);
+    const names = parseGeDailyScheduleHtml(html).map((match) => match.competition);
     expect(names).toEqual([
-      'Campeonato Brasileiro',
+      'Brasileirão Série A',
       'Copa do Brasil',
-      'Taça Conmebol Libertadores',
-      'Copa Sul-Americana',
-      'Campeonato Carioca',
+      'Libertadores',
+      'Sul-Americana',
+      'Carioca',
     ]);
   });
 

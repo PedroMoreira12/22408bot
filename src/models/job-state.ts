@@ -7,6 +7,7 @@ export interface JobStateRecord {
   lockedUntil?: Date;
   lockOwner?: string;
   lastCompletedAt?: Date;
+  camisa7AttemptedAt?: Date;
 }
 
 const jobStateSchema = new Schema<JobStateRecord>({
@@ -16,6 +17,7 @@ const jobStateSchema = new Schema<JobStateRecord>({
   lockedUntil: Date,
   lockOwner: String,
   lastCompletedAt: Date,
+  camisa7AttemptedAt: Date,
 });
 
 export const JobState = (mongoose.models.JobState ??

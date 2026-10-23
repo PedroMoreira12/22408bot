@@ -1,5 +1,13 @@
 export type ReminderUnit = 'minuto' | 'hora' | 'dia' | 'mes';
-export type AgendaScope = 'today' | 'tomorrow' | 'botafogo';
+
+export type AgendaScope =
+  | { type: 'today' }
+  | { type: 'tomorrow' }
+  | { type: 'week' }
+  | { type: 'botafogo' }
+  /** Dia da semana: 0 = domingo, 6 = sábado. */
+  | { type: 'weekday'; weekday: number }
+  | { type: 'date'; day: number; month: number; year?: number };
 
 export type ParsedCommand =
   | { kind: 'camisa7' }
@@ -19,9 +27,20 @@ export type ParsedCommand =
   | { kind: 'agenda'; scope: AgendaScope }
   | { kind: 'invalid-agenda' }
   | { kind: 'table' }
+  | { kind: 'round' }
+  | { kind: 'result' }
+  | { kind: 'lineup' }
+  | { kind: 'prediction'; home: number; away: number }
+  | { kind: 'prediction-status' }
+  | { kind: 'invalid-prediction' }
+  | { kind: 'prediction-ranking'; year?: number }
+  | { kind: 'game-alert' }
+  | { kind: 'cancel-game-alert' }
   | { kind: 'reminders' }
   | { kind: 'reminder'; amount: number; unit: ReminderUnit; displayUnit: string }
   | { kind: 'invalid-reminder' };
+
+export type CommandKind = ParsedCommand['kind'];
 
 const UNIT_ALIASES: Record<string, ReminderUnit> = {
   minuto: 'minuto',
@@ -43,6 +62,24 @@ const UNIT_MILLISECONDS: Record<ReminderUnit, number> = {
 };
 
 const MAX_REMINDER_MILLISECONDS = 365 * 86_400_000;
+const MAX_PREDICTION_GOALS = 20;
+
+const WEEKDAY_ALIASES: Record<string, number> = {
+  domingo: 0,
+  dom: 0,
+  segunda: 1,
+  seg: 1,
+  terca: 2,
+  ter: 2,
+  quarta: 3,
+  qua: 3,
+  quinta: 4,
+  qui: 4,
+  sexta: 5,
+  sex: 5,
+  sabado: 6,
+  sab: 6,
+};
 
 export function parseCommand(text: string): ParsedCommand | null {
   const match = /^!(\S+)(?:\s+(.*))?$/su.exec(text.trim());
@@ -67,6 +104,8 @@ export function parseCommand(text: string): ParsedCommand | null {
     case 'mensagem':
       return { kind: 'private-message' };
     case 'tutorial':
+    case 'ajuda':
+    case 'comandos':
       return { kind: 'tutorial' };
     case 'stats':
     case 'estatisticas':
@@ -82,29 +121,6 @@ export function parseCommand(text: string): ParsedCommand | null {
       return parseYearOnly(argument, 'records');
     case 'top':
       return parseTop(argument);
-    case 'top1':
-    case 'top2':
-    case 'top3':
-    case 'top4':
-    case 'top5':
-    case 'top6':
-    case 'top7':
-    case 'top8':
-    case 'top9':
-    case 'top10':
-    case 'top11':
-    case 'top12':
-    case 'top13':
-    case 'top14':
-    case 'top15':
-    case 'top16':
-    case 'top17':
-    case 'top18':
-    case 'top19':
-    case 'top20': {
-      const limit = Number(name.slice(3));
-      return argument ? parseTop(`${limit} ${argument}`) : { kind: 'top', limit };
-    }
     case 'jogo':
     case 'proximo':
     case 'próximo':
@@ -119,20 +135,50 @@ export function parseCommand(text: string): ParsedCommand | null {
     case 'brasileirao':
     case 'brasileirão':
       return { kind: 'table' };
+    case 'rodada':
+      return { kind: 'round' };
+    case 'resultado':
+    case 'placar':
+    case 'ultimo':
+    case 'último':
+    case 'ultimojogo':
+    case 'últimojogo':
+      return { kind: 'result' };
+    case 'escalacao':
+    case 'escalação':
+      return { kind: 'lineup' };
+    case 'palpite':
+      return parsePrediction(argument);
+    case 'bolao':
+    case 'bolão':
+    case 'rankingpalpites':
+    case 'rankingbolao':
+    case 'rankingbolão':
+      return parseYearOnly(argument, 'prediction-ranking');
+    case 'avisar':
+    case 'avisarjogo':
+      return parseGameAlert(argument);
     case 'lembretes':
     case 'meuslembretes':
       return { kind: 'reminders' };
     case 'r':
     case 'remind':
       return parseReminder(argument);
-    default:
+    default: {
+      const top = /^top(\d{1,2})$/u.exec(name ?? '');
+      if (top) {
+        const limit = Number(top[1]);
+        if (limit < 1 || limit > 20) return null;
+        return argument ? parseTop(`${limit} ${argument}`) : { kind: 'top', limit };
+      }
       return null;
+    }
   }
 }
 
 function parseYearOnly(
   argument: string,
-  kind: 'stats' | 'sequence' | 'retrospective' | 'records',
+  kind: 'stats' | 'sequence' | 'retrospective' | 'records' | 'prediction-ranking',
 ): ParsedCommand {
   if (!argument) return { kind };
   if (!/^\d{4}$/u.test(argument)) return { kind, year: Number.NaN };
@@ -154,13 +200,50 @@ function parseTop(argument: string): ParsedCommand {
 }
 
 function parseAgenda(argument: string): ParsedCommand {
-  const normalized = argument.toLocaleLowerCase('pt-BR');
-  if (!normalized) return { kind: 'agenda', scope: 'today' };
-  if (normalized === 'amanha' || normalized === 'amanhã') {
-    return { kind: 'agenda', scope: 'tomorrow' };
+  const normalized = normalizeWord(argument);
+  if (!normalized || normalized === 'hoje') return { kind: 'agenda', scope: { type: 'today' } };
+  if (normalized === 'amanha') return { kind: 'agenda', scope: { type: 'tomorrow' } };
+  if (normalized === 'semana') return { kind: 'agenda', scope: { type: 'week' } };
+  if (['botafogo', 'bota', 'fogao'].includes(normalized)) {
+    return { kind: 'agenda', scope: { type: 'botafogo' } };
   }
-  if (normalized === 'botafogo') return { kind: 'agenda', scope: 'botafogo' };
+
+  const weekday = WEEKDAY_ALIASES[normalized.replace(/-?feira$/u, '')];
+  if (weekday !== undefined) return { kind: 'agenda', scope: { type: 'weekday', weekday } };
+
+  const date = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/u.exec(normalized);
+  if (date) {
+    const day = Number(date[1]);
+    const month = Number(date[2]);
+    const year = date[3] ? Number(date[3].length === 2 ? `20${date[3]}` : date[3]) : undefined;
+    if (!isValidDate(day, month, year ?? 2024)) return { kind: 'invalid-agenda' };
+    return {
+      kind: 'agenda',
+      scope: { type: 'date', day, month, ...(year !== undefined ? { year } : {}) },
+    };
+  }
   return { kind: 'invalid-agenda' };
+}
+
+function parsePrediction(argument: string): ParsedCommand {
+  if (!argument) return { kind: 'prediction-status' };
+  const score = /^(\d{1,2})\s*(?:x|×|-|a)\s*(\d{1,2})$/iu.exec(argument);
+  if (!score) return { kind: 'invalid-prediction' };
+  const home = Number(score[1]);
+  const away = Number(score[2]);
+  if (home > MAX_PREDICTION_GOALS || away > MAX_PREDICTION_GOALS) {
+    return { kind: 'invalid-prediction' };
+  }
+  return { kind: 'prediction', home, away };
+}
+
+function parseGameAlert(argument: string): ParsedCommand {
+  const normalized = normalizeWord(argument);
+  if (!normalized || normalized === 'jogo') return { kind: 'game-alert' };
+  if (['cancelar', 'off', 'parar', 'nao'].includes(normalized)) {
+    return { kind: 'cancel-game-alert' };
+  }
+  return { kind: 'game-alert' };
 }
 
 function parseReminder(argument: string): ParsedCommand {
@@ -180,4 +263,18 @@ function parseReminder(argument: string): ParsedCommand {
 
 export function calculateReminderDate(amount: number, unit: ReminderUnit, now = new Date()): Date {
   return new Date(now.getTime() + amount * UNIT_MILLISECONDS[unit]);
+}
+
+export function isValidDate(day: number, month: number, year: number): boolean {
+  if (month < 1 || month > 12 || day < 1) return false;
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function normalizeWord(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/gu, '')
+    .replace(/\s+/gu, ' ');
 }

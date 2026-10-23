@@ -9,7 +9,8 @@ Referência oficial da VK: <https://dev.vk.com/en/reference>. A base das chamada
 ## Arquitetura
 
 - `POST /api/jobs/run` é chamado uma vez por minuto pelo cron-job.org com `Authorization: Bearer <CRON_SECRET>`.
-- Cada invocação adquire um lease global no MongoDB, consulta tópicos alterados, enfileira comandos novos e processa comandos e lembretes pendentes.
+- Cada invocação adquire um lease global no MongoDB e executa, nesta ordem: polling dos tópicos, comandos pendentes, lembretes, avisos de jogo (`!avisar`), feed do jogo (se `MATCH_TOPIC_ID` estiver definido), conferência do bolão, contagem diária do Camisa 7 e backfill de atividade.
+- Polling, comandos e lembretes são obrigatórios. As demais etapas são opcionais: só começam se restarem pelo menos 8 segundos do orçamento de 45 segundos, e uma falha nelas é registrada sem interromper o job.
 - `GET /api/health` é um health check sem dependência de banco ou configuração.
 - Cursores por tópico, jobs únicos por comentário e IDs determinísticos nas escritas VK evitam perda e duplicação.
 - A primeira execução inicializa os cursores sem responder a comentários históricos.
@@ -23,8 +24,9 @@ Não adicione processos contínuos, `setInterval` ou listeners de Long Poll: a V
 Métodos usados:
 
 - `board.getTopics` e `board.getComments` para polling.
-- `board.createComment` para respostas, sempre com `guid` determinístico.
-- `users.get` apenas quando `board.getComments?extended=1` não fornece o perfil.
+- `board.createComment` para respostas e para o feed do jogo, sempre com `guid` determinístico. No feed, `reply_to_comment` é omitido.
+- `users.get` quando `board.getComments?extended=1` não fornece o perfil e, em lote (`getUserFirstNames`), para rankings, bolão e avisos de jogo. Nunca faça uma chamada por usuário em laço.
+- `groups.isMember` para excluir ex-membros dos rankings.
 - `messages.send` com token da comunidade e `random_id` determinístico e não zero.
 
 Para estatísticas, `board.getComments` fornece `from_id` e `date`, enquanto `board.getTopics` fornece `created_by` e `created`. A API não fornece a data de entrada de um membro com o token atual: `groups.getMembers?sort=time_asc` exige que o chamador seja moderador. Nunca apresente a primeira atividade observada como se fosse a data de entrada na comunidade.
@@ -33,32 +35,59 @@ Centralize chamadas em `src/clients/vk.ts`. Use POST, timeout, envelope validado
 
 ## Comandos
 
-| Comando            | Comportamento                                     |
-| ------------------ | ------------------------------------------------- |
-| `!camisa7`         | Informa a quantidade de sócios do plano Camisa 7. |
-| `!c [mensagem]`    | Menciona o autor com uma mensagem opcional.       |
-| `!gsd`             | Publica a resposta GSD.                           |
-| `!antizica`        | Publica a resposta anti-zica.                     |
-| `!mongol`          | Publica a resposta anti-GSD.                      |
-| `!upem`            | Envia o link fixo do tópico de “upar”.            |
-| `!m` / `!mensagem` | Envia o link do tópico por mensagem privada.      |
-| `!remind` / `!r`   | Agenda lembrete entre 1 minuto e 365 dias.        |
-| `!lembretes`       | Lista até dez lembretes pendentes do autor.       |
-| `!jogo`            | Mostra o próximo jogo confirmado do Botafogo.     |
-| `!agenda`          | Agenda cinco competições ou jogos do Botafogo.    |
-| `!tabela`          | Mostra o Botafogo e seus vizinhos na Série A.     |
-| `!tutorial`        | Publica a lista de comandos.                      |
+| Comando                              | Comportamento                                                       |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `!camisa7`                           | Sócios do plano Camisa 7 e variação desde sete dias antes.          |
+| `!c [mensagem]`                      | Menciona o autor com uma mensagem opcional.                         |
+| `!gsd` / `!antizica` / `!mongol`     | Respostas fixas da comunidade.                                      |
+| `!upem`                              | Envia o link fixo do tópico de “upar”.                              |
+| `!m` / `!mensagem`                   | Envia o link do tópico por mensagem privada.                        |
+| `!remind` / `!r`                     | Agenda lembrete entre 1 minuto e 365 dias.                          |
+| `!lembretes`                         | Lista lembretes e avisos de jogo pendentes do autor.                |
+| `!jogo`                              | Próximo jogo do Botafogo com contagem regressiva e canais por tipo. |
+| `!agenda [amanhã/dia/data/semana]`   | Agenda das cinco competições acompanhadas.                          |
+| `!agenda botafogo`                   | Todos os próximos jogos do Botafogo.                                |
+| `!resultado` / `!ultimo`             | Último jogo do Botafogo com os gols.                                |
+| `!escalacao`                         | Escalação do próximo jogo ou a última, se ainda não saiu.           |
+| `!tabela` / `!rodada`                | Botafogo e vizinhos na Série A; rodada atual.                       |
+| `!palpite [2x1]`                     | Registra ou mostra o palpite para o próximo jogo.                   |
+| `!bolao [ano]`                       | Ranking anual do bolão.                                             |
+| `!avisar` / `!avisar cancelar`       | Marca o autor 30 minutos antes do próximo jogo.                     |
+| `!stats`, `!top`, `!sequencia`       | Estatísticas individuais e ranking de atividade.                    |
+| `!retrospectiva`, `!recordes`        | Resumo e recordes de atividade da comunidade.                       |
+| `!tutorial` / `!ajuda` / `!comandos` | Publica a lista de comandos.                                        |
 
-Parsing fica em `src/commands/parser.ts`, execução em `src/commands/execute.ts` e conteúdo em `src/commands/content.ts`. Comandos só são reconhecidos no início do comentário.
+Parsing fica em `src/commands/parser.ts`, execução em `src/commands/execute.ts`, formatação esportiva em `src/commands/sports.ts`, estatísticas em `src/commands/activity.ts`, cooldowns em `src/commands/cooldown.ts` e conteúdo fixo em `src/commands/content.ts`. Comandos só são reconhecidos no início do comentário.
 
-O cliente `src/clients/football-schedule.ts` extrai e valida os dados estruturados das páginas públicas de agenda do ge. `!jogo` e `!agenda botafogo` usam a agenda do clube; `!agenda` e `!agenda amanhã` filtram Série A, Copa do Brasil, Libertadores, Sul-Americana e Carioca. `!jogo` também exibe os nomes presentes em `liveWatchSources`; quando a fonte ainda não publicou os canais, responde que a transmissão não foi informada. O pacote `campeonato-brasileiro-api` permanece exclusivo para `!tabela`. Ambos os clientes usam timeout, retentativa e cache de cinco minutos. Como a fonte de agenda não oferece contrato de API, mantenha testes do parser e falhe explicitamente se a estrutura do HTML mudar.
+A VK não interpreta Markdown em comentários de tópicos: escreva respostas e o tutorial em texto simples com emojis. Mantenha os arquivos em UTF-8; um teste falha se o tutorial tiver texto decodificado duas vezes (como `Ã£`).
+
+Comandos de consulta têm cooldown por autor e chave (`agenda:tomorrow`, `top:5:2026`…): 1 minuto, ou 3 minutos para `!top`, `!retrospectiva` e `!recordes`. Repetições são concluídas com `skippedReason: 'cooldown'`, sem resposta. Comandos que gravam algo (`!palpite 2x1`, `!r`, `!avisar`) e as respostas fixas não têm cooldown.
+
+## Fontes esportivas
+
+`src/football/service.ts` combina as fontes e é a única porta usada por comandos e jobs:
+
+- **ESPN** (`src/clients/espn.ts`, API pública não oficial, `lang=pt&region=br`): calendário do Botafogo em todas as competições (`/all/teams/6086/schedule`), resultados, agenda por mês e competição (`/{liga}/scoreboard?dates=AAAAMM`) e resumo da partida com gols e escalações (`/all/summary?event=ID`). `timeValid: false` significa horário ainda não confirmado: mostre “a definir” e não envie avisos com base nele.
+- **futebolnatv.com.br** (`src/clients/futebolnatv.ts`): canais de transmissão do próximo jogo, lidos da página do Botafogo e das páginas de cada jogo (JSON-LD `SportsEvent` e painel “onde assistir”). Cache de 30 minutos; cite a fonte nas respostas.
+- **ge** (`src/clients/ge.ts`): reserva para calendário e agenda quando a ESPN falha, e para canais quando o futebolnatv não informa. A página do clube só traz o próximo jogo. Itens como “Cartola” não são transmissões e são removidos em `src/football/channels.ts`.
+- **campeonato-brasileiro-api**: exclusivo para `!tabela` e `!rodada`.
+
+Nenhuma dessas fontes tem contrato de API: valide com Zod, mantenha testes dos parsers e falhe explicitamente se o formato mudar. Comandos esportivos não devem ficar presos em retentativas longas: `executeCommand` responde na hora que a fonte está indisponível e só repete erros da VK.
+
+## Bolão, avisos e feed
+
+- `Prediction`: um palpite por usuário e partida ESPN (`matchId`), editável até o início. A conferência começa 1h45 após o início, usa o placar final da ESPN, anula palpites atualizados depois do início real e acompanha remarcações; partidas adiadas por mais de 7 dias têm os palpites anulados. Pontuação: placar exato 3, vencedor ou empate 1.
+- `GameAlert`: um aviso por usuário e partida. Cada execução atualiza o horário com a ESPN, avisa 30 minutos antes e descarta avisos com mais de 15 minutos de atraso.
+- `MatchFeed`: estado do feed por partida e tópico (`MATCH_TOPIC_ID`) — chamada do dia de jogo, escalação, gols já publicados, placar final e resumo do bolão. Os `guid` determinísticos (`feed:<matchId>:<etapa>`) evitam duplicatas mesmo se o estado não for salvo.
+- `Camisa7Snapshot`: uma contagem por dia em São Paulo, gravada pelo job e por `!camisa7`.
 
 ## Persistência e retentativas
 
-- `CommandJob`: fila durável, única por tópico/comentário.
+- `CommandJob`: fila durável, única por tópico/comentário. Guarda o texto do comentário; jobs concluídos (`completedAt`) ou com falha definitiva (`failedAt`) expiram após 30 dias por índice TTL.
 - `TopicCursor`: último comentário observado por tópico.
-- `JobState`: watermark do polling e lease global.
+- `JobState`: watermark do polling, lease global e última tentativa da contagem do Camisa 7.
 - `Reminder`: compatível com documentos legados; estados `pending`, `processing`, `sent` e `failed`.
+- `Prediction`, `GameAlert`, `MatchFeed` e `Camisa7Snapshot`: ver a seção anterior.
 - `ActivityEvent`: livro-razão imutável e idempotente de comentários e tópicos, único por comunidade e evento.
 - `ActivityBackfillState`: progresso global do backfill iniciado em 01/01/2026.
 - `ActivityBackfillTopic`: cursor, lease, retentativas e diagnóstico do backfill de cada tópico.
@@ -67,7 +96,7 @@ Jobs e lembretes usam leases e até dez tentativas com backoff. Nunca marque com
 
 ## Estatísticas de atividade
 
-A coleta está ativa, mas não existem comandos públicos de estatísticas. Não adicione `!stats`, `!perfil`, `!atividade` ou `!top` ao parser ou ao tutorial até cumprir os critérios da seção “Próximos passos”.
+Os comandos `!stats`, `!top`, `!sequencia`, `!retrospectiva` e `!recordes` estão publicados e cobrem de 2026 até o ano atual. `!top` limita `N` entre 1 e 20, busca nomes em lote e exclui quem já não é membro; todas as respostas informam o ano.
 
 `ActivityEvent` é a fonte de verdade. Cada documento contém apenas:
 
@@ -78,34 +107,23 @@ A coleta está ativa, mas não existem comandos públicos de estatísticas. Não
 
 Não são armazenados texto, nome, foto ou token. IDs de autores negativos — comunidades e bots publicando como comunidade — não entram nas estatísticas. O índice único `{ groupId, eventKey }` torna a janela sobreposta do polling e a concorrência com o backfill seguras. O polling deve registrar os eventos antes de salvar o cursor; se a gravação falhar, a execução deve falhar para que os comentários sejam retomados.
 
-As estatísticas serão calculadas por ano a partir de `year`, e dias ativos a partir de `dateKey`. O ledger permite alterar a fórmula de pontuação futuramente sem migrar contadores antigos.
+As estatísticas são calculadas por ano a partir de `year`, e dias ativos a partir de `dateKey`. A pontuação do ranking limita 20 comentários e 5 tópicos (peso 3) por dia; o ledger permite alterar a fórmula sem migrar contadores antigos.
 
 ### Backfill de 2026
 
 O job `src/jobs/backfill-activity.ts` começa automaticamente no primeiro cron após o deploy e usa como corte `2026-01-01T00:00:00-03:00`. O instante da primeira execução vira o limite superior do snapshot; o polling normal cobre atividades posteriores.
 
-O descobrimento usa `board.getTopics` ordenado por última atualização, não por criação. Isso inclui comentários de 2026 publicados em tópicos antigos. Tópicos fixados são desconsiderados ao decidir que o corte histórico foi alcançado. Por execução, o job lê no máximo duas páginas de 100 tópicos e cinco páginas de 100 comentários, sempre depois de polling, comandos e lembretes e somente se restarem pelo menos doze segundos do orçamento.
+O descobrimento usa `board.getTopics` ordenado por última atualização, não por criação. Isso inclui comentários de 2026 publicados em tópicos antigos. Tópicos fixados são desconsiderados ao decidir que o corte histórico foi alcançado. Por execução, o job lê no máximo duas páginas de 100 tópicos e cinco páginas de 100 comentários, sempre depois das demais etapas e somente se restarem pelo menos doze segundos do orçamento.
 
 Uma medição somente de leitura feita durante a implementação mostrou que as primeiras 20 páginas continham 2.000 tópicos atualizados em 2026 e um teto de 58.328 comentários, mas alcançavam apenas 15/06/2026. Portanto, o backfill completo pode levar muitas horas ou alguns dias. Não aumente os limites por minuto sem medir duração da função, erros VK e consumo da Vercel.
 
 O backfill não cria `CommandJob` nem responde a comandos antigos. Ele apenas insere `ActivityEvent`. Falhas de um tópico usam lease e backoff; após dez tentativas, o tópico fica como `failed` e o estado final será `completed_with_errors`. O resultado de `POST /api/jobs/run` expõe `activityBackfill.status`, métricas da execução, totais acumulados e falhas para acompanhamento.
 
-Limitações inevitáveis: conteúdo ou tópicos apagados não podem ser recuperados; tópicos inacessíveis podem ficar como falha; a “primeira atividade” histórica significa o primeiro evento público recuperável desde 01/01/2026, não a entrada na comunidade. Depois que o backfill inicial terminar, uma indisponibilidade do cron superior a 24 horas pode criar uma lacuna, pois o guardrail do polling não busca comandos mais antigos. Antes de publicar rankings, audite `JobState.lastSuccessfulPollAt`; se houver lacunas, implemente um novo backfill de intervalo que grave somente `ActivityEvent`, sem reprocessar comandos.
-
-### Próximos passos
-
-Com o backfill concluído, os comandos de estatísticas podem ser implementados quando:
-
-1. `activityBackfill.status` estiver `completed` ou todas as causas de `completed_with_errors` tiverem sido avaliadas;
-2. o ledger tiver volume suficiente para um ranking útil — referência inicial: ao menos 1.000 eventos válidos e 30 membros distintos;
-3. uma consulta de auditoria confirmar ausência de duplicatas, anos corretos e distribuição plausível por usuário;
-4. a comunidade aprovar uma fórmula transparente e resistente a spam.
-
-Na etapa futura, criar agregação anual materializada a partir de `ActivityEvent`, sem alterar o ledger. Sugestão inicial: totais brutos de comentários e tópicos; dias ativos distintos; primeira e última atividade; comandos separados; pontuação diária limitada. `!stats [ano]` deve consultar somente o autor, e `!top N [ano]` deve limitar `N` entre 1 e 20, buscar perfis em lote e excluir contas que já não sejam membros. Todas as respostas devem informar o ano e a data inicial da cobertura.
+Limitações inevitáveis: conteúdo ou tópicos apagados não podem ser recuperados; tópicos inacessíveis podem ficar como falha; a “primeira atividade” histórica significa o primeiro evento público recuperável desde 01/01/2026, não a entrada na comunidade. Uma indisponibilidade do cron superior a 24 horas pode criar uma lacuna, pois o guardrail do polling não busca comandos mais antigos. Ao investigar números estranhos, audite `JobState.lastSuccessfulPollAt`; se houver lacunas, implemente um backfill de intervalo que grave somente `ActivityEvent`, sem reprocessar comandos.
 
 ## Desenvolvimento
 
-Variáveis obrigatórias estão em `.env.example`: `ACCESS_TOKEN`, `ACCESS_TOKEN_COMMUNITY`, `API_VERSION`, `GROUP_ID`, `MONGODB_URI` e `CRON_SECRET`. Não versionar valores reais.
+Variáveis obrigatórias estão em `.env.example`: `ACCESS_TOKEN`, `ACCESS_TOKEN_COMMUNITY`, `API_VERSION`, `GROUP_ID`, `MONGODB_URI` e `CRON_SECRET`. `MATCH_TOPIC_ID` é opcional e liga o feed do jogo. Não versionar valores reais.
 
 ```bash
 npm install
@@ -114,7 +132,7 @@ npm run check
 npm run test:coverage
 ```
 
-Use imports ESM com extensão `.js`, mesmo em fontes `.ts`. Antes de entregar mudanças, execute formatação, lint, typecheck, testes e `npm audit`. Testes não podem chamar serviços reais.
+Use imports ESM com extensão `.js`, mesmo em fontes `.ts`. Antes de entregar mudanças, execute formatação, lint, typecheck, testes e `npm audit`. Testes não podem chamar serviços reais: injete `fetchImpl` nos clientes, um `FootballService` falso em `executeCommand` e use `vi.mock` para os modelos do Mongoose. O `.gitattributes` força LF para que o Prettier passe também no Windows.
 
 ## Deploy
 

@@ -28,6 +28,8 @@ export default tseslint.config(
     files: ['tests/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
+      // Asserções sobre mocks (expect(service.metodo)) acessam métodos sem chamá-los.
+      '@typescript-eslint/unbound-method': 'off',
     },
   },
 );
