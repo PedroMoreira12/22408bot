@@ -1,6 +1,7 @@
 import { getCompetition } from 'campeonato-brasileiro-api';
 import { z } from 'zod';
 
+import { createCache } from './http.js';
 import { HttpError, isTransientError } from './vk.js';
 import { withRetry } from '../lib/retry.js';
 
@@ -69,26 +70,11 @@ export type BrasileiraoCompetition = z.infer<typeof competitionSchema>;
 export type BrasileiraoMatch = z.infer<typeof matchSchema>;
 export type BrasileiraoTableEntry = z.infer<typeof tableEntrySchema>;
 
-interface CacheEntry {
-  expiresAt: number;
-  value: BrasileiraoCompetition;
-}
+const cache = createCache(CACHE_MILLISECONDS, loadCompetition);
 
-let cache: CacheEntry | undefined;
-let pendingRequest: Promise<BrasileiraoCompetition> | undefined;
-
+/** Classificação e rodada atual da Série A. */
 export async function getBrasileiraoCompetition(): Promise<BrasileiraoCompetition> {
-  const now = Date.now();
-  if (cache && cache.expiresAt > now) return cache.value;
-  pendingRequest ??= loadCompetition();
-
-  try {
-    const value = await pendingRequest;
-    cache = { value, expiresAt: Date.now() + CACHE_MILLISECONDS };
-    return value;
-  } finally {
-    pendingRequest = undefined;
-  }
+  return cache.get();
 }
 
 async function loadCompetition(): Promise<BrasileiraoCompetition> {
@@ -102,7 +88,7 @@ const fetchWithRetry: typeof fetch = async (input, init) =>
   withRetry(
     async () => {
       const headers = new Headers(init?.headers);
-      headers.set('user-agent', 'pimpao-bot-vk/2.0');
+      headers.set('user-agent', 'pimpao-bot-vk/2.1');
       const response = await fetch(input, {
         ...init,
         headers,
@@ -115,6 +101,5 @@ const fetchWithRetry: typeof fetch = async (input, init) =>
   );
 
 export function resetBrasileiraoCacheForTests(): void {
-  cache = undefined;
-  pendingRequest = undefined;
+  cache.clear();
 }

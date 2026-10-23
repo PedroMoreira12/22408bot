@@ -30,6 +30,38 @@ describe('VkClient', () => {
     expect(deterministicRandomId('operation-1')).toBeGreaterThan(0);
   });
 
+  it('publica sem resposta quando não há comentário de origem', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ response: 43 }));
+    const client = new VkClient(config, { fetchImpl: fetchMock, requestSpacingMs: 0 });
+
+    await client.createComment(10, null, 'feed', 'operation-2');
+    const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.has('reply_to_comment')).toBe(false);
+    expect(body.get('topic_id')).toBe('10');
+  });
+
+  it('busca vários nomes em uma única chamada', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        response: [
+          { id: 1, first_name: 'Ana' },
+          { id: 2, first_name: 'Bia' },
+        ],
+      }),
+    );
+    const client = new VkClient(config, { fetchImpl: fetchMock, requestSpacingMs: 0 });
+
+    const names = await client.getUserFirstNames([1, 2, 2, -5]);
+    expect(names).toEqual(
+      new Map([
+        [1, 'Ana'],
+        [2, 'Bia'],
+      ]),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams).get('user_ids')).toBe('1,2');
+  });
+
   it('repete falhas transitórias e recupera', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

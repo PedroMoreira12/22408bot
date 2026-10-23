@@ -69,10 +69,53 @@ describe('parseCommand', () => {
   );
 
   it('reconhece as variações da agenda', () => {
-    expect(parseCommand('!agenda')).toEqual({ kind: 'agenda', scope: 'today' });
-    expect(parseCommand('!agenda AMANHÃ')).toEqual({ kind: 'agenda', scope: 'tomorrow' });
-    expect(parseCommand('!agenda botafogo')).toEqual({ kind: 'agenda', scope: 'botafogo' });
-    expect(parseCommand('!agenda semana')).toEqual({ kind: 'invalid-agenda' });
+    expect(parseCommand('!agenda')).toEqual({ kind: 'agenda', scope: { type: 'today' } });
+    expect(parseCommand('!agenda AMANHÃ')).toEqual({ kind: 'agenda', scope: { type: 'tomorrow' } });
+    expect(parseCommand('!agenda botafogo')).toEqual({
+      kind: 'agenda',
+      scope: { type: 'botafogo' },
+    });
+    expect(parseCommand('!agenda semana')).toEqual({ kind: 'agenda', scope: { type: 'week' } });
+    expect(parseCommand('!agenda Sábado')).toEqual({
+      kind: 'agenda',
+      scope: { type: 'weekday', weekday: 6 },
+    });
+    expect(parseCommand('!agenda segunda-feira')).toEqual({
+      kind: 'agenda',
+      scope: { type: 'weekday', weekday: 1 },
+    });
+    expect(parseCommand('!agenda 25/10')).toEqual({
+      kind: 'agenda',
+      scope: { type: 'date', day: 25, month: 10 },
+    });
+    expect(parseCommand('!agenda 01/02/27')).toEqual({
+      kind: 'agenda',
+      scope: { type: 'date', day: 1, month: 2, year: 2027 },
+    });
+    expect(parseCommand('!agenda 31/02')).toEqual({ kind: 'invalid-agenda' });
+    expect(parseCommand('!agenda ontem')).toEqual({ kind: 'invalid-agenda' });
+  });
+
+  it.each([
+    ['!rodada', { kind: 'round' }],
+    ['!resultado', { kind: 'result' }],
+    ['!último', { kind: 'result' }],
+    ['!escalação', { kind: 'lineup' }],
+    ['!palpite', { kind: 'prediction-status' }],
+    ['!palpite 2x1', { kind: 'prediction', home: 2, away: 1 }],
+    ['!palpite 0 X 3', { kind: 'prediction', home: 0, away: 3 }],
+    ['!palpite 1-1', { kind: 'prediction', home: 1, away: 1 }],
+    ['!palpite 21x0', { kind: 'invalid-prediction' }],
+    ['!palpite botafogo', { kind: 'invalid-prediction' }],
+    ['!bolao', { kind: 'prediction-ranking' }],
+    ['!bolão 2026', { kind: 'prediction-ranking', year: 2026 }],
+    ['!avisar', { kind: 'game-alert' }],
+    ['!avisar jogo', { kind: 'game-alert' }],
+    ['!avisar cancelar', { kind: 'cancel-game-alert' }],
+    ['!ajuda', { kind: 'tutorial' }],
+    ['!top21', null],
+  ])('reconhece %s', (input, expected) => {
+    expect(parseCommand(input)).toEqual(expected);
   });
 
   it.each(['!lembretes', '!meuslembretes'])('reconhece listagem de lembretes: %s', (input) => {

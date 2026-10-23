@@ -7,6 +7,11 @@ const configSchema = z.object({
   GROUP_ID: z.coerce.number().int().positive(),
   MONGODB_URI: z.string().min(1),
   CRON_SECRET: z.string().min(16),
+  // Opcional: tópico onde o bot publica chamada do jogo, escalações, gols e placar final.
+  MATCH_TOPIC_ID: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().int().positive().optional(),
+  ),
 });
 
 export type AppConfig = Readonly<{
@@ -16,6 +21,7 @@ export type AppConfig = Readonly<{
   groupId: number;
   mongoUri: string;
   cronSecret: string;
+  matchTopicId: number | null;
 }>;
 
 let cachedConfig: AppConfig | undefined;
@@ -36,6 +42,7 @@ export function getConfig(): AppConfig {
     groupId: parsed.data.GROUP_ID,
     mongoUri: parsed.data.MONGODB_URI,
     cronSecret: parsed.data.CRON_SECRET,
+    matchTopicId: parsed.data.MATCH_TOPIC_ID ?? null,
   });
   return cachedConfig;
 }

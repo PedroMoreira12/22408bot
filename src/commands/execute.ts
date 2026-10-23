@@ -1,23 +1,24 @@
 import { getCamisa7Count } from '../clients/camisa7.js';
-import { getBrasileiraoCompetition, type BrasileiraoCompetition } from '../clients/brasileirao.js';
-import {
-  getBotafogoSchedule,
-  getDailyFootballSchedule,
-  type FootballSchedule,
-} from '../clients/football-schedule.js';
 import { VkApiError, type VkClient } from '../clients/vk.js';
 import {
-  formatDateKey,
-  getCommunityRecordCandidates,
-  getCommunityRetrospective,
-} from '../activity/community-stats.js';
-import { Reminder } from '../models/reminder.js';
+  cancelGameAlerts,
+  listPendingGameAlerts,
+  subscribeGameAlert,
+} from '../football/game-alerts.js';
 import {
-  getActiveDates,
-  getActivityRanking,
-  getActivityStats,
-  longestActiveSequence,
-} from '../activity/stats.js';
+  EXACT_SCORE_POINTS,
+  getPredictionRanking,
+  getPredictionStatus,
+  OUTCOME_POINTS,
+  registerPrediction,
+} from '../football/predictions.js';
+import { getFootballService, type FootballService } from '../football/service.js';
+import type { FootballMatch } from '../football/types.js';
+import { getCamisa7Trend, recordCamisa7Snapshot } from '../jobs/camisa7-snapshot.js';
+import { log } from '../lib/logger.js';
+import { formatShortDateKey, localYear, TIME_ZONE } from '../lib/time.js';
+import { Reminder } from '../models/reminder.js';
+import { buildActivityReply } from './activity.js';
 import {
   antiGsdMessages,
   antiZicaMessages,
@@ -26,12 +27,26 @@ import {
   tutorialMessage,
 } from './content.js';
 import { calculateReminderDate, type ParsedCommand } from './parser.js';
-import { formatAgenda, formatBotafogoGame, formatBrasileiraoTable } from './sports.js';
+import {
+  formatAgenda,
+  formatBotafogoAgenda,
+  formatBrasileiraoTable,
+  formatLineups,
+  formatNextGame,
+  formatResult,
+  formatRound,
+  formatScoreLine,
+  formatWhen,
+  resolveAgendaWindow,
+} from './sports.js';
 
 const COMMUNITY_PAGE = 'https://vk.com/club228711116';
 const TOPIC_BASE_URL = 'https://vk.com/topic-73670797_';
 const UPEM_TOPIC_URL = 'https://vk.com/topic-73670797_41317973';
 const PRIVATE_MESSAGE_DENIED_CODES = new Set([901, 902, 914]);
+const FIRST_BOLAO_YEAR = 2026;
+const LINEUP_LOOKAHEAD_MILLISECONDS = 3 * 60 * 60_000;
+const SOURCE_UNAVAILABLE = Symbol('source-unavailable');
 
 export interface CommandContext {
   topicId: number;
@@ -43,10 +58,8 @@ export interface CommandContext {
 
 export interface ExecuteDependencies {
   vk: VkClient;
-  getFanCount?: typeof getCamisa7Count;
-  getBrasileirao?: () => Promise<BrasileiraoCompetition>;
-  getBotafogoSchedule?: () => Promise<FootballSchedule>;
-  getDailyFootballSchedule?: () => Promise<FootballSchedule>;
+  football?: FootballService;
+  getFanCount?: () => Promise<number>;
   random?: () => number;
   now?: () => Date;
 }
@@ -57,23 +70,16 @@ export async function executeCommand(
   dependencies: ExecuteDependencies,
 ): Promise<void> {
   const { vk } = dependencies;
+  const football = dependencies.football ?? getFootballService();
+  const now = dependencies.now?.() ?? new Date();
   const operationBase = `topic:${context.topicId}:comment:${context.commentId}`;
   let cachedAuthorName = context.authorName;
 
-  const authorName = async (): Promise<string> => {
+  const mention = async (): Promise<string> => {
     cachedAuthorName ??= await vk.getUserFirstName(context.userId);
-    return cachedAuthorName;
+    return `[post${context.commentId}|${cachedAuthorName}]`;
   };
   const reply = async (message: string, suffix: string = command.kind): Promise<void> => {
-    if (
-      command.kind === 'top' ||
-      command.kind === 'sequence' ||
-      command.kind === 'retrospective' ||
-      command.kind === 'records' ||
-      command.kind === 'stats'
-    ) {
-      message = formatActivityReply(command.kind, message);
-    }
     await vk.createComment(
       context.topicId,
       context.commentId,
@@ -81,30 +87,57 @@ export async function executeCommand(
       `${operationBase}:reply:${suffix}`,
     );
   };
+  /** Resposta curta na mesma linha da menção. */
+  const answer = async (body: string, suffix?: string): Promise<void> =>
+    reply(`${await mention()}, ${body}`, suffix);
+  /** Resposta com várias linhas abaixo da menção. */
+  const answerBlock = async (body: string): Promise<void> => reply(`${await mention()},\n${body}`);
+  /**
+   * Consulta fontes externas sem retentativas longas: se falharem, o autor recebe um aviso
+   * imediato em vez de uma resposta atrasada em horas. Erros da VK continuam sendo repetidos.
+   */
+  const fromSource = async <T>(load: () => Promise<T>): Promise<T | typeof SOURCE_UNAVAILABLE> => {
+    try {
+      return await load();
+    } catch (error) {
+      if (error instanceof VkApiError) throw error;
+      log('warn', 'command.source_unavailable', { kind: command.kind, error });
+      return SOURCE_UNAVAILABLE;
+    }
+  };
+  const answerUnavailable = async (what = 'os dados de jogos'): Promise<void> =>
+    answer(`⚠️ não consegui consultar ${what} agora. Tente novamente em alguns minutos.`);
+  const nextMatch = async (): Promise<FootballMatch | null | typeof SOURCE_UNAVAILABLE> =>
+    fromSource(() => football.getNextBotafogoMatch(now));
 
   switch (command.kind) {
     case 'camisa7': {
-      const fanCount = await (dependencies.getFanCount ?? getCamisa7Count)();
-      await reply(`[post${context.commentId}|${await authorName()}], Temos ${fanCount} sócios! ✈️`);
-      return;
+      const count = await fromSource(() => (dependencies.getFanCount ?? getCamisa7Count)());
+      if (count === SOURCE_UNAVAILABLE) return answerUnavailable('o contador do Camisa 7');
+      let trendLine = '';
+      try {
+        await recordCamisa7Snapshot(count, now);
+        const trend = await getCamisa7Trend(now);
+        if (trend) {
+          const difference = count - trend.previousCount;
+          const signal = difference > 0 ? '+' : difference < 0 ? '−' : '±';
+          trendLine = `\n📈 ${signal}${formatNumber(Math.abs(difference))} desde ${formatShortDateKey(trend.sinceDateKey)}`;
+        }
+      } catch (error) {
+        log('warn', 'camisa7.trend_failed', { error });
+      }
+      return answer(`Temos ${formatNumber(count)} sócios! ✈️${trendLine}`);
     }
     case 'quote':
-      await reply(`[post${context.commentId}|${await authorName()}], ${command.message} ✈️`);
-      return;
+      return answer(`${command.message} ✈️`);
     case 'gsd':
-      await reply(randomItem(gsdMessages, dependencies.random));
-      return;
+      return reply(randomItem(gsdMessages, dependencies.random));
     case 'antizica':
-      await reply(randomItem(antiZicaMessages, dependencies.random));
-      return;
+      return reply(randomItem(antiZicaMessages, dependencies.random));
     case 'mongol':
-      await reply(randomItem(antiGsdMessages, dependencies.random));
-      return;
+      return reply(randomItem(antiGsdMessages, dependencies.random));
     case 'upem':
-      await reply(
-        `[post${context.commentId}|${await authorName()}], Mais uma coisa que ninguém ouviu falar! PODE UPAR ${UPEM_TOPIC_URL} ✈️`,
-      );
-      return;
+      return answer(`Mais uma coisa que ninguém ouviu falar! PODE UPAR ${UPEM_TOPIC_URL} ✈️`);
     case 'private-message':
       try {
         await vk.sendMessage(
@@ -115,15 +148,16 @@ export async function executeCommand(
       } catch (error) {
         if (!(error instanceof VkApiError) || !PRIVATE_MESSAGE_DENIED_CODES.has(error.code))
           throw error;
-        await reply(
-          `[post${context.commentId}|${await authorName()}], Você tem que seguir a página ${COMMUNITY_PAGE} e enviar uma mensagem para ela antes de usar esse comando. ✈️`,
+        await answer(
+          `Você tem que seguir a página ${COMMUNITY_PAGE} e enviar uma mensagem para ela antes de usar esse comando. ✈️`,
           'private-message-fallback',
         );
       }
       return;
     case 'reminder': {
-      const remindAt = calculateReminderDate(command.amount, command.unit, dependencies.now?.());
+      const remindAt = calculateReminderDate(command.amount, command.unit, now);
       const dedupeKey = `${context.topicId}:${context.commentId}`;
+      const prefix = await mention();
       await Reminder.updateOne(
         { dedupeKey },
         {
@@ -133,7 +167,7 @@ export async function executeCommand(
             messageId: String(context.commentId),
             userId: String(context.userId),
             remindAt,
-            message: `Reminder for ${await authorName()}`,
+            message: `Reminder for ${cachedAuthorName ?? 'usuário'}`,
             status: 'pending',
             attempts: 0,
             nextAttemptAt: new Date(),
@@ -141,357 +175,252 @@ export async function executeCommand(
         },
         { upsert: true },
       );
-      await reply(
-        `[post${context.commentId}|${await authorName()}], Vou te marcar no tópico em ${command.amount} ${command.displayUnit} ✈️`,
+      return reply(
+        `${prefix}, Vou te marcar no tópico em ${command.amount} ${command.displayUnit} ✈️`,
       );
-      return;
     }
     case 'invalid-reminder':
-      await reply(
-        `[post${context.commentId}|${await authorName()}], Desculpe, ocorreu um erro ao configurar o lembrete. Verifique se escreveu corretamente ou chame o Sarmet ✈️`,
+      return answer(
+        'Desculpe, ocorreu um erro ao configurar o lembrete. Verifique se escreveu corretamente (ex.: !r 10 minutos) ou chame o Sarmet ✈️',
       );
-      return;
     case 'tutorial':
-      await reply(tutorialMessage);
-      return;
-    case 'stats': {
-      const now = dependencies.now?.() ?? new Date();
-      const year = resolveYear(command.year, now);
-      if (!isAvailableActivityYear(year, now)) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
-        );
-        return;
-      }
-      const stats = await getActivityStats(vk.groupId, context.userId, year);
-      const sequence = longestActiveSequence(
-        await getActiveDates(vk.groupId, context.userId, year),
-      );
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\n${formatActivityStats(stats, year, sequence)}`,
-      );
-      return;
-    }
-    case 'top': {
-      const now = dependencies.now?.() ?? new Date();
-      const year = resolveYear(command.year, now);
-      if (!isAvailableActivityYear(year, now)) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
-        );
-        return;
-      }
-      if (!Number.isInteger(command.limit) || command.limit < 1 || command.limit > 20) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], use !top, !top5 ou !top 5 2026 âœˆï¸`,
-        );
-        return;
-      }
-      const candidates = await getActivityRanking(vk.groupId, year, command.limit);
-      const memberships = await vk.getUserMemberships(
-        candidates.map((entry) => Number(entry.userId)),
-      );
-      const visible = candidates
-        .filter((entry) => memberships.get(Number(entry.userId)) === true)
-        .slice(0, command.limit);
-      if (visible.length === 0) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], ainda nÃ£o hÃ¡ dados suficientes para o ranking de ${year} âœˆï¸`,
-        );
-        return;
-      }
-      const names = await Promise.all(
-        visible.map((entry) => vk.getUserFirstName(Number(entry.userId))),
-      );
-      const lines = visible.map(
-        (entry, index) =>
-          `${index + 1}. ${names[index]} â€” ${entry.score} pts | ${entry.comments} comentÃ¡rios | ${entry.activeDays} dias ativos`,
-      );
-      await reply(
-        `[post${context.commentId}|${await authorName()}], ranking de atividade de ${year}:\n${lines.join('\n')}\nPontuaÃ§Ã£o: atÃ© 20 comentÃ¡rios e 5 tÃ³picos por dia.`,
-      );
-      return;
-    }
-    case 'sequence': {
-      const now = dependencies.now?.() ?? new Date();
-      const year = resolveYear(command.year, now);
-      if (!isAvailableActivityYear(year, now)) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
-        );
-        return;
-      }
-      const sequence = longestActiveSequence(
-        await getActiveDates(vk.groupId, context.userId, year),
-      );
-      await reply(
-        `[post${context.commentId}|${await authorName()}], sua maior sequÃªncia de dias ativos em ${year} foi de ${sequence} dia(s) âœˆï¸`,
-      );
-      return;
-    }
-    case 'retrospective': {
-      const now = dependencies.now?.() ?? new Date();
-      const year = resolveYear(command.year, now);
-      if (!isAvailableActivityYear(year, now)) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
-        );
-        return;
-      }
-      const retrospective = await getCommunityRetrospective(vk.groupId, year);
-      if (retrospective.comments === 0 && retrospective.topics === 0) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ atividade registrada em ${year} âœˆï¸`,
-        );
-        return;
-      }
-      const busiest = retrospective.busiestDay
-        ? `${formatDateKey(retrospective.busiestDay.dateKey)} (${retrospective.busiestDay.events} atividades)`
-        : '—';
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\nretrospectiva da comunidade em ${year}:\nparticipantes: ${retrospective.participants}\ncomentÃ¡rios: ${retrospective.comments}\ntÃ³picos criados: ${retrospective.topics}\ndias ativos: ${retrospective.activeDays}\ncomandos: ${retrospective.commands}\ndia mais movimentado: ${busiest}`,
-      );
-      return;
-    }
-    case 'records': {
-      const now = dependencies.now?.() ?? new Date();
-      const year = resolveYear(command.year, now);
-      if (!isAvailableActivityYear(year, now)) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados de atividade para ${year}. A cobertura disponÃ­vel comeÃ§a em 2026 e vai atÃ© o ano atual âœˆï¸`,
-        );
-        return;
-      }
-      const candidates = await getCommunityRecordCandidates(vk.groupId, year);
-      const memberships = await vk.getUserMemberships(
-        candidates.map((entry) => Number(entry.userId)),
-      );
-      const members = candidates.filter((entry) => memberships.get(Number(entry.userId)) === true);
-      const mostComments = members[0];
-      const mostTopics = [...members].sort(
-        (a, b) => b.topics - a.topics || b.comments - a.comments,
-      )[0];
-      const longestSequence = members
-        .map((entry) => ({ entry, sequence: longestActiveSequence(entry.dateKeys) }))
-        .sort((a, b) => b.sequence - a.sequence || b.entry.comments - a.entry.comments)[0];
-      if (!mostComments || !mostTopics || !longestSequence) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], nÃ£o hÃ¡ dados suficientes para os recordes de ${year} âœˆï¸`,
-        );
-        return;
-      }
-      const ids = [mostComments.userId, mostTopics.userId, longestSequence.entry.userId];
-      const names = await Promise.all(ids.map((id) => vk.getUserFirstName(Number(id))));
-      const [commentsName, topicsName, sequenceName] = names;
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\nrecordes de atividade em ${year}:\nmais comentÃ¡rios: ${commentsName} (${mostComments.comments})\nmais tÃ³picos criados: ${topicsName} (${mostTopics.topics})\nmaior sequÃªncia: ${sequenceName} (${longestSequence.sequence} dias)`,
-      );
-      return;
-    }
+      return reply(tutorialMessage);
+    case 'stats':
+    case 'top':
+    case 'sequence':
+    case 'retrospective':
+    case 'records':
+      return answerBlock(await buildActivityReply(command, vk, context.userId, now));
     case 'game': {
-      const data = await (dependencies.getBotafogoSchedule ?? getBotafogoSchedule)();
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\n${formatBotafogoGame(data, dependencies.now?.())}`,
-      );
-      return;
+      const data = await fromSource(async () => {
+        const match = await football.getNextBotafogoMatch(now);
+        const broadcasts = match
+          ? await football.getBroadcasts(match)
+          : { broadcasts: [], source: null };
+        return { match, broadcasts };
+      });
+      if (data === SOURCE_UNAVAILABLE) return answerUnavailable();
+      return answerBlock(formatNextGame(data.match, data.broadcasts, now));
     }
     case 'agenda': {
-      const data =
-        command.scope === 'botafogo'
-          ? await (dependencies.getBotafogoSchedule ?? getBotafogoSchedule)()
-          : await (dependencies.getDailyFootballSchedule ?? getDailyFootballSchedule)();
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\n${formatAgenda(data, command.scope, dependencies.now?.())}`,
-      );
-      return;
+      if (command.scope.type === 'botafogo') {
+        const matches = await fromSource(() => football.getUpcomingBotafogoMatches());
+        if (matches === SOURCE_UNAVAILABLE) return answerUnavailable();
+        return answerBlock(formatBotafogoAgenda(matches, now));
+      }
+      const window = resolveAgendaWindow(command.scope, now);
+      if (!window) return answer('essa data não existe. Use, por exemplo, !agenda 25/10 ✈️');
+      const matches = await fromSource(() => football.getAgendaMatches(window.dates));
+      if (matches === SOURCE_UNAVAILABLE) return answerUnavailable();
+      return answerBlock(formatAgenda(matches, window, now));
     }
     case 'invalid-agenda':
-      await reply(
-        `[post${context.commentId}|${await authorName()}], use !agenda, !agenda amanhã ou !agenda botafogo ✈️`,
+      return answer(
+        'use !agenda, !agenda amanhã, !agenda sábado, !agenda 25/10, !agenda semana ou !agenda botafogo ✈️',
       );
-      return;
     case 'table': {
-      const data = await (dependencies.getBrasileirao ?? getBrasileiraoCompetition)();
-      await reply(
-        `[post${context.commentId}|${await authorName()}],\n${formatBrasileiraoTable(data)}`,
+      const data = await fromSource(() => football.getBrasileirao());
+      if (data === SOURCE_UNAVAILABLE) return answerUnavailable('a tabela do Brasileirão');
+      return answerBlock(formatBrasileiraoTable(data));
+    }
+    case 'round': {
+      const data = await fromSource(() => football.getBrasileirao());
+      if (data === SOURCE_UNAVAILABLE) return answerUnavailable('a rodada do Brasileirão');
+      return answerBlock(formatRound(data));
+    }
+    case 'result': {
+      const data = await fromSource(async () => {
+        const [last] = await football.getRecentBotafogoResults();
+        const report = last ? await football.getMatchReport(last.id).catch(() => null) : null;
+        return { last: last ?? null, report };
+      });
+      if (data === SOURCE_UNAVAILABLE) return answerUnavailable();
+      return answerBlock(formatResult(data.last, data.report));
+    }
+    case 'lineup': {
+      const data = await fromSource(async () => {
+        const upcoming = await football.getNextBotafogoMatch(now);
+        const soon =
+          upcoming !== null &&
+          (upcoming.status === 'live' ||
+            new Date(upcoming.kickoffAt).getTime() - now.getTime() <=
+              LINEUP_LOOKAHEAD_MILLISECONDS);
+        const upcomingReport =
+          upcoming && soon ? await football.getMatchReport(upcoming.id).catch(() => null) : null;
+        const hasLineup = upcomingReport?.lineups.some(
+          (lineup) => lineup.isBotafogo && lineup.starters.length >= 11,
+        );
+        if (hasLineup) return { upcoming, upcomingReport, last: null, lastReport: null };
+        const [last] = await football.getRecentBotafogoResults();
+        const lastReport = last ? await football.getMatchReport(last.id).catch(() => null) : null;
+        return { upcoming, upcomingReport, last: last ?? null, lastReport };
+      });
+      if (data === SOURCE_UNAVAILABLE) return answerUnavailable();
+      return answerBlock(formatLineups(data));
+    }
+    case 'prediction': {
+      const match = await nextMatch();
+      if (match === SOURCE_UNAVAILABLE) return answerUnavailable();
+      const result = await registerPrediction(
+        {
+          userId: context.userId,
+          topicId: context.topicId,
+          commentId: context.commentId,
+          home: command.home,
+          away: command.away,
+        },
+        match,
+        now,
       );
+      switch (result.status) {
+        case 'no-match':
+          return answer('não encontrei o próximo jogo do Botafogo para registrar o palpite ✈️');
+        case 'unsupported':
+          return answerUnavailable('a fonte de resultados do bolão');
+        case 'closed':
+          return answer(
+            `⛔ os palpites para ${formatScoreLine(result.match)} estão encerrados: o jogo já começou.`,
+          );
+        case 'registered':
+        case 'updated': {
+          const { match: target } = result;
+          return answer(
+            [
+              `🎯 Palpite ${result.status === 'registered' ? 'registrado' : 'atualizado'}: ${target.homeTeam.name} ${command.home} x ${command.away} ${target.awayTeam.name}.`,
+              `⏳ Vale até o início do jogo (${formatWhen(target, now, false)}).`,
+              `💡 Placar exato vale ${EXACT_SCORE_POINTS} pontos; acertar o vencedor ou o empate vale ${OUTCOME_POINTS}.`,
+            ].join('\n'),
+          );
+        }
+      }
       return;
+    }
+    case 'prediction-status': {
+      const match = await nextMatch();
+      if (match === SOURCE_UNAVAILABLE) return answerUnavailable();
+      const status = await getPredictionStatus(context.userId, match);
+      if (!status.match) return answer('não encontrei o próximo jogo do Botafogo ✈️');
+      const label = formatScoreLine(status.match);
+      const total = `${status.totalForMatch} palpite(s) no total`;
+      if (!status.prediction) {
+        return answer(
+          `você ainda não deu palpite para ${label} (${total}). Use !palpite 2x1, com os gols do mandante primeiro.`,
+        );
+      }
+      return answer(
+        `🎯 seu palpite: ${status.match.homeTeam.name} ${status.prediction.homeGoals} x ${status.prediction.awayGoals} ${status.match.awayTeam.name} (${total}). Para mudar, mande outro !palpite antes do jogo.`,
+      );
+    }
+    case 'invalid-prediction':
+      return answer('use !palpite 2x1, com os gols do mandante primeiro (até 20 gols por time) ✈️');
+    case 'prediction-ranking': {
+      const year = command.year ?? localYear(now);
+      if (!Number.isInteger(year) || year < FIRST_BOLAO_YEAR || year > localYear(now)) {
+        return answer(
+          `o bolão começou em ${FIRST_BOLAO_YEAR}. Use !bolao ou !bolao ${localYear(now)} ✈️`,
+        );
+      }
+      const ranking = await getPredictionRanking(year);
+      if (ranking.length === 0) {
+        return answerBlock(
+          `ℹ️ Ainda não há palpites conferidos em ${year}. Mande o seu com !palpite 2x1.`,
+        );
+      }
+      const top = ranking.slice(0, 10);
+      const ownIndex = ranking.findIndex((entry) => entry.userId === String(context.userId));
+      const names = await vk.getUserFirstNames(top.map((entry) => Number(entry.userId)));
+      const medals = ['🥇', '🥈', '🥉'];
+      const lines = [
+        `🎯 Bolão do Pimpão — ${year}`,
+        ...top.map(
+          (entry, index) =>
+            `${medals[index] ?? `${index + 1}.`} ${names.get(Number(entry.userId)) ?? 'Membro'} — ${entry.points} pts (${entry.exact} exato(s) em ${entry.predictions} palpite(s))`,
+        ),
+      ];
+      const own = ranking[ownIndex];
+      if (own && ownIndex >= top.length) {
+        lines.push(`📌 Você: ${ownIndex + 1}º lugar, ${own.points} pts`);
+      }
+      lines.push(
+        `💡 Placar exato: ${EXACT_SCORE_POINTS} pts · vencedor ou empate: ${OUTCOME_POINTS} pt`,
+      );
+      return answerBlock(lines.join('\n'));
+    }
+    case 'game-alert': {
+      const match = await nextMatch();
+      if (match === SOURCE_UNAVAILABLE) return answerUnavailable();
+      const result = await subscribeGameAlert(
+        { userId: context.userId, topicId: context.topicId, commentId: context.commentId },
+        match,
+        now,
+      );
+      switch (result.status) {
+        case 'no-match':
+          return answer('não encontrei o próximo jogo do Botafogo ✈️');
+        case 'started':
+          return answer(`${formatScoreLine(result.match)} já começou ✈️`);
+        case 'exists':
+          return answer(`🔔 você já está na lista do aviso de ${formatScoreLine(result.match)} ✈️`);
+        case 'created': {
+          const adjust = result.match.time
+            ? ''
+            : ' Quando o horário for confirmado, ajusto o aviso.';
+          return answer(
+            `🔔 combinado! Vou te marcar 30 min antes de ${formatScoreLine(result.match)} (${formatWhen(result.match, now, false)}).${adjust} Para cancelar: !avisar cancelar`,
+          );
+        }
+      }
+      return;
+    }
+    case 'cancel-game-alert': {
+      const cancelled = await cancelGameAlerts(context.userId);
+      return answer(
+        cancelled > 0 ? '🔕 aviso de jogo cancelado ✈️' : 'você não tinha avisos de jogo ativos ✈️',
+      );
     }
     case 'reminders': {
-      const now = dependencies.now?.() ?? new Date();
-      const reminders = await Reminder.find({
-        userId: String(context.userId),
-        $or: [{ status: { $in: ['pending', 'processing'] } }, { status: { $exists: false } }],
-      })
-        .sort({ remindAt: 1 })
-        .limit(11)
-        .lean();
+      const [reminders, alerts] = await Promise.all([
+        Reminder.find({
+          userId: String(context.userId),
+          $or: [{ status: { $in: ['pending', 'processing'] } }, { status: { $exists: false } }],
+        })
+          .sort({ remindAt: 1 })
+          .limit(11)
+          .lean(),
+        listPendingGameAlerts(context.userId),
+      ]);
       const visible = reminders.slice(0, 10);
-      if (visible.length === 0) {
-        await reply(
-          `[post${context.commentId}|${await authorName()}], você não tem lembretes pendentes ✈️`,
-        );
-        return;
+      if (visible.length === 0 && alerts.length === 0) {
+        return answer('você não tem lembretes pendentes ✈️');
       }
-      const lines = visible.map(
-        (reminder, index) =>
-          `${index + 1}. ${formatReminderDate(reminder.remindAt, now)} — ${TOPIC_BASE_URL}${reminder.topicId}?post=${reminder.messageId}`,
-      );
+      const lines = [
+        ...visible.map(
+          (reminder, index) =>
+            `${index + 1}. ${formatReminderDate(reminder.remindAt, now)} — ${TOPIC_BASE_URL}${reminder.topicId}?post=${reminder.messageId}`,
+        ),
+        ...alerts.map(
+          (alert) =>
+            `⚽ ${formatReminderDate(new Date(alert.kickoffAt.getTime() - 30 * 60_000), now)} — aviso de ${alert.homeTeam} x ${alert.awayTeam}`,
+        ),
+      ];
       if (reminders.length > visible.length) lines.push('...e mais lembretes pendentes.');
-      await reply(
-        `[post${context.commentId}|${await authorName()}], seus lembretes pendentes:\n${lines.join('\n')}`,
-      );
-      return;
+      return answer(`seus lembretes pendentes:\n${lines.join('\n')}`);
     }
   }
-}
-
-function resolveYear(year: number | undefined, now = new Date()): number {
-  return (
-    year ??
-    Number(
-      new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', year: 'numeric' }).format(
-        now,
-      ),
-    )
-  );
-}
-
-function isAvailableActivityYear(year: number, now: Date): boolean {
-  const currentYear = resolveYear(undefined, now);
-  return Number.isInteger(year) && year >= 2026 && year <= currentYear;
-}
-
-function formatLegacyActivityStats(
-  stats: Awaited<ReturnType<typeof getActivityStats>>,
-  year: number,
-): string {
-  if (stats.comments === 0 && stats.topics === 0) return `nÃ£o encontrei atividade sua em ${year}.`;
-  const formatter = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    dateStyle: 'short',
-  });
-  return [
-    `suas estatÃ­sticas de ${year}:`,
-    `comentÃ¡rios: ${stats.comments}`,
-    `tÃ³picos criados: ${stats.topics}`,
-    `dias ativos: ${stats.activeDays}`,
-    `comandos: ${stats.commands}`,
-    `primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '—'}`,
-    `Ãºltima atividade: ${stats.lastActivity ? formatter.format(stats.lastActivity) : '—'}`,
-  ].join('\n');
-}
-
-void formatLegacyActivityStats;
-
-function formatActivityStats(
-  stats: Awaited<ReturnType<typeof getActivityStats>>,
-  year: number,
-  sequence: number,
-): string {
-  if (stats.comments === 0 && stats.topics === 0) {
-    return `\u{1F4CA} N\u00e3o encontrei atividade sua em ${year}.`;
-  }
-  const formatter = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    dateStyle: 'short',
-  });
-  return [
-    `\u{1F4CA} Suas estat\u00edsticas de ${year}:`,
-    `\u{1F4AC} Coment\u00e1rios: ${stats.comments}`,
-    `\u{1F4DD} T\u00f3picos criados: ${stats.topics}`,
-    `\u{1F4C5} Dias ativos: ${stats.activeDays}`,
-    `\u{1F916} Comandos: ${stats.commands}`,
-    `\u{1F680} Primeira atividade: ${stats.firstActivity ? formatter.format(stats.firstActivity) : '\u2014'}`,
-    `\u{1F525} Maior sequ\u00eancia: ${sequence} dia(s)`,
-  ].join('\n');
-}
-
-function formatActivityReply(
-  kind: 'stats' | 'top' | 'sequence' | 'retrospective' | 'records',
-  message: string,
-): string {
-  const prefixEnd = message.indexOf('],') + 2;
-  if (prefixEnd < 2) return message;
-  const prefix = message.slice(0, prefixEnd);
-  const body = message.slice(prefixEnd).replace(/^\s*/u, '');
-  const year = body.match(/\b\d{4}\b/u)?.[0] ?? '';
-
-  if (body.includes('dados de atividade para')) {
-    return `${prefix}\n\u26a0\ufe0f N\u00e3o h\u00e1 dados de atividade para ${year}. A cobertura dispon\u00edvel come\u00e7a em 2026 e vai at\u00e9 o ano atual.`;
-  }
-  if (body.includes('use !top')) {
-    return `${prefix}\n\u2139\ufe0f Use !top, !top5 ou !top 5 2026.`;
-  }
-  if (body.includes('dados suficientes para o ranking')) {
-    return `${prefix}\n\u2139\ufe0f Ainda n\u00e3o h\u00e1 dados suficientes para o ranking de ${year}.`;
-  }
-  if (body.includes('atividade registrada')) {
-    return `${prefix}\n\u2139\ufe0f N\u00e3o h\u00e1 atividade registrada em ${year}.`;
-  }
-  if (body.includes('dados suficientes para os recordes')) {
-    return `${prefix}\n\u2139\ufe0f N\u00e3o h\u00e1 dados suficientes para os recordes de ${year}.`;
-  }
-  if (kind === 'stats') return message;
-
-  if (kind === 'sequence') {
-    if (!body.includes('foi de')) return message;
-    const sequence = body.match(/foi de (\d+) dia/u)?.[1] ?? '0';
-    return `${prefix}\n\u{1F525} Sua maior sequ\u00eancia de dias ativos em ${year}: ${sequence} dia(s).`;
-  }
-
-  if (kind === 'top') {
-    const rankLines = body.split('\n').filter((line) => /^\d+\./u.test(line));
-    if (rankLines.length === 0) return message;
-    const entries = rankLines.map((line) => {
-      const match =
-        /^(\d+)\.\s+(.+?)\s+\S+\s+(\d+)\s+pts\s+\|\s+(\d+)\s+\S+\s+\|\s+(\d+)\s+dias/u.exec(line);
-      return match
-        ? `\u{1F3C5} ${match[1]}. ${match[2]} — ${match[3]} pts | ${match[4]} coment\u00e1rios | ${match[5]} dias ativos`
-        : `\u{1F3C5} ${line}`;
-    });
-    return `${prefix}\n\u{1F3C6} Ranking de atividade de ${year}:\n${entries.join('\n')}\n\u{1F4A1} Pontua\u00e7\u00e3o limitada por dia para reduzir spam.`;
-  }
-
-  if (kind === 'retrospective') {
-    if (!body.includes('retrospectiva da comunidade')) return message;
-    const values = [...body.matchAll(/:\s*(\d+)/gu)].map((match) => match[1]);
-    const busiestDate = body.match(/\b\d{2}\/\d{2}\/\d{4}\b/u)?.[0] ?? '—';
-    return [
-      prefix,
-      `\u{1F4CA} Retrospectiva da comunidade em ${year}:`,
-      `\u{1F465} Participantes: ${values[0] ?? 0}`,
-      `\u{1F4AC} Coment\u00e1rios: ${values[1] ?? 0}`,
-      `\u{1F4DD} T\u00f3picos criados: ${values[2] ?? 0}`,
-      `\u{1F4C5} Dias ativos: ${values[3] ?? 0}`,
-      `\u{1F916} Comandos: ${values[4] ?? 0}`,
-      `\u{1F525} Dia mais movimentado: ${busiestDate} (${values[5] ?? 0} atividades)`,
-    ].join('\n');
-  }
-
-  if (!body.includes('recordes de atividade')) return message;
-  const records = body
-    .split('\n')
-    .slice(1)
-    .map((line) => /:\s*(.+?)\s+\((\d+)(?:\s+[^)]*)?\)/u.exec(line))
-    .filter((match): match is RegExpExecArray => match !== null);
-  return [
-    prefix,
-    `\u{1F3C6} Recordes de atividade em ${year}:`,
-    `\u{1F4AC} Mais coment\u00e1rios: ${records[0]?.[1] ?? '—'} (${records[0]?.[2] ?? 0})`,
-    `\u{1F4DD} Mais t\u00f3picos criados: ${records[1]?.[1] ?? '—'} (${records[1]?.[2] ?? 0})`,
-    `\u{1F525} Maior sequ\u00eancia: ${records[2]?.[1] ?? '—'} (${records[2]?.[2] ?? 0} dias)`,
-  ].join('\n');
 }
 
 function formatReminderDate(remindAt: Date, now: Date): string {
   const formatter = new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
+    timeZone: TIME_ZONE,
     day: '2-digit',
     month: '2-digit',
-    year: remindAt.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    year: localYear(remindAt) === localYear(now) ? undefined : 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
   return formatter.format(remindAt);
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString('pt-BR');
 }
