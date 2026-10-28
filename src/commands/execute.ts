@@ -9,6 +9,7 @@ import {
   EXACT_SCORE_POINTS,
   getPredictionRanking,
   getPredictionStatus,
+  listMatchPredictions,
   OUTCOME_POINTS,
   registerPrediction,
 } from '../football/predictions.js';
@@ -19,6 +20,7 @@ import { log } from '../lib/logger.js';
 import { formatShortDateKey, localYear, TIME_ZONE } from '../lib/time.js';
 import { Reminder } from '../models/reminder.js';
 import { buildActivityReply } from './activity.js';
+import { formatPredictionList, formatRankingLine } from './bolao.js';
 import {
   antiGsdMessages,
   antiZicaMessages,
@@ -301,7 +303,7 @@ export async function executeCommand(
       const status = await getPredictionStatus(context.userId, match);
       if (!status.match) return answer('não encontrei o próximo jogo do Botafogo ✈️');
       const label = formatScoreLine(status.match);
-      const total = `${status.totalForMatch} palpite(s) no total`;
+      const total = `${status.totalForMatch} palpite(s) no total; veja todos com !palpites`;
       if (!status.prediction) {
         return answer(
           `você ainda não deu palpite para ${label} (${total}). Use !palpite 2x1, com os gols do mandante primeiro.`,
@@ -310,6 +312,16 @@ export async function executeCommand(
       return answer(
         `🎯 seu palpite: ${status.match.homeTeam.name} ${status.prediction.homeGoals} x ${status.prediction.awayGoals} ${status.match.awayTeam.name} (${total}). Para mudar, mande outro !palpite antes do jogo.`,
       );
+    }
+    case 'prediction-list': {
+      const match = await nextMatch();
+      if (match === SOURCE_UNAVAILABLE) return answerUnavailable();
+      if (!match) return answer('não encontrei o próximo jogo do Botafogo ✈️');
+      const predictions = await listMatchPredictions(match.id);
+      const names = await vk.getUserFirstNames(
+        predictions.map((prediction) => Number(prediction.userId)),
+      );
+      return answerBlock(formatPredictionList(match, predictions, names, now));
     }
     case 'invalid-prediction':
       return answer('use !palpite 2x1, com os gols do mandante primeiro (até 20 gols por time) ✈️');
@@ -329,13 +341,9 @@ export async function executeCommand(
       const top = ranking.slice(0, 10);
       const ownIndex = ranking.findIndex((entry) => entry.userId === String(context.userId));
       const names = await vk.getUserFirstNames(top.map((entry) => Number(entry.userId)));
-      const medals = ['🥇', '🥈', '🥉'];
       const lines = [
         `🎯 Bolão do Pimpão — ${year}`,
-        ...top.map(
-          (entry, index) =>
-            `${medals[index] ?? `${index + 1}.`} ${names.get(Number(entry.userId)) ?? 'Membro'} — ${entry.points} pts (${entry.exact} exato(s) em ${entry.predictions} palpite(s))`,
-        ),
+        ...top.map((entry, index) => formatRankingLine(entry, index, names)),
       ];
       const own = ranking[ownIndex];
       if (own && ownIndex >= top.length) {

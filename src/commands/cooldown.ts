@@ -34,6 +34,7 @@ export function commandCooldown(command: ParsedCommand): CommandCooldown | null 
     case 'tutorial':
     case 'reminders':
     case 'prediction-status':
+    case 'prediction-list':
       return regular(command.kind);
     default:
       return null;

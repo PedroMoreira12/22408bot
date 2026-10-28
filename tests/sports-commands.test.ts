@@ -6,6 +6,7 @@ const predictionMocks = vi.hoisted(() => ({
   register: vi.fn(),
   status: vi.fn(),
   ranking: vi.fn(),
+  list: vi.fn(),
 }));
 const camisa7Mocks = vi.hoisted(() => ({ record: vi.fn(), trend: vi.fn() }));
 
@@ -20,6 +21,7 @@ vi.mock('../src/football/predictions.js', async (importOriginal) => ({
   registerPrediction: predictionMocks.register,
   getPredictionStatus: predictionMocks.status,
   getPredictionRanking: predictionMocks.ranking,
+  listMatchPredictions: predictionMocks.list,
 }));
 vi.mock('../src/jobs/camisa7-snapshot.js', () => ({
   recordCamisa7Snapshot: camisa7Mocks.record,
@@ -433,6 +435,81 @@ describe('execução dos comandos', () => {
       now: () => now,
     });
     expect(lastMessage()).toContain('estão encerrados');
+  });
+
+  it('!palpites lista todos os palpites do próximo jogo agrupados por placar', async () => {
+    const open = (userId: string, homeGoals: number, awayGoals: number) => ({
+      userId,
+      homeGoals,
+      awayGoals,
+      status: 'open' as const,
+    });
+    predictionMocks.list.mockResolvedValue([
+      open('10', 2, 0),
+      open('11', 1, 1),
+      open('12', 2, 0),
+      open('13', 0, 1),
+      { ...open('14', 3, 0), status: 'void' as const },
+    ]);
+    getUserFirstNames.mockResolvedValue(
+      new Map([
+        [10, 'Caio'],
+        [11, 'Duda'],
+        [12, 'Ana'],
+        [13, 'Bia'],
+        [14, 'Edu'],
+      ]),
+    );
+    const football = fakeFootball();
+    await executeCommand({ kind: 'prediction-list' }, context, { vk, football, now: () => now });
+
+    expect(predictionMocks.list).toHaveBeenCalledWith('espn:2');
+    expect(getUserFirstNames).toHaveBeenCalledOnce();
+    expect(lastMessage()).toBe(
+      [
+        '[post12|Bia],',
+        '🎯 Palpites para Botafogo x Fluminense',
+        '⏳ Palpites abertos até amanhã, 03/08 às 21:00',
+        '📊 4 palpite(s): Botafogo vence 2 · empate 1 · Fluminense vence 1',
+        '',
+        '• 2 x 0 (2): Ana e Caio',
+        '• 1 x 1 (1): Duda',
+        '• 0 x 1 (1): Bia',
+        '',
+        '💡 Mande ou mude o seu com !palpite 2x1 antes do jogo.',
+      ].join('\n'),
+    );
+  });
+
+  it('!palpites avisa quando ninguém palpitou e corta listas longas', async () => {
+    predictionMocks.list.mockResolvedValue([]);
+    getUserFirstNames.mockResolvedValue(new Map());
+    await executeCommand({ kind: 'prediction-list' }, context, {
+      vk,
+      football: fakeFootball(),
+      now: () => now,
+    });
+    expect(lastMessage()).toContain('Ninguém deu palpite ainda. Seja o primeiro: !palpite 2x1');
+
+    // 21 x 21 placares distintos com vários palpiteiros cada estouram o limite da VK.
+    predictionMocks.list.mockResolvedValue(
+      Array.from({ length: 441 * 3 }, (_, index) => ({
+        userId: String(index + 1),
+        homeGoals: Math.floor(index / 3) % 21,
+        awayGoals: Math.floor(index / 63),
+        status: 'open' as const,
+      })),
+    );
+    getUserFirstNames.mockResolvedValue(
+      new Map(Array.from({ length: 441 * 3 }, (_, index) => [index + 1, `Torcedor${index + 1}`])),
+    );
+    await executeCommand({ kind: 'prediction-list' }, context, {
+      vk,
+      football: fakeFootball(),
+      now: () => now,
+    });
+    expect(lastMessage().length).toBeLessThanOrEqual(3_600);
+    expect(lastMessage()).toMatch(/\.\.\.e mais \d+ palpite\(s\) em outros placares\./u);
   });
 
   it('!bolao mostra o ranking com nomes em lote e a posição do autor', async () => {

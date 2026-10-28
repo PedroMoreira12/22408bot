@@ -9,7 +9,7 @@ Referência oficial da VK: <https://dev.vk.com/en/reference>. A base das chamada
 ## Arquitetura
 
 - `POST /api/jobs/run` é chamado uma vez por minuto pelo cron-job.org com `Authorization: Bearer <CRON_SECRET>`.
-- Cada invocação adquire um lease global no MongoDB e executa, nesta ordem: polling dos tópicos, comandos pendentes, lembretes, avisos de jogo (`!avisar`), feed do jogo (se `MATCH_TOPIC_ID` estiver definido), conferência do bolão, contagem diária do Camisa 7 e backfill de atividade.
+- Cada invocação adquire um lease global no MongoDB e executa, nesta ordem: polling dos tópicos, comandos pendentes, lembretes, avisos de jogo (`!avisar`), feed do jogo (se `MATCH_TOPIC_ID` estiver definido), conferência do bolão, tópico de resultado do bolão, contagem diária do Camisa 7 e backfill de atividade.
 - Polling, comandos e lembretes são obrigatórios. As demais etapas são opcionais: só começam se restarem pelo menos 8 segundos do orçamento de 45 segundos, e uma falha nelas é registrada sem interromper o job.
 - `GET /api/health` é um health check sem dependência de banco ou configuração.
 - Cursores por tópico, jobs únicos por comentário e IDs determinísticos nas escritas VK evitam perda e duplicação.
@@ -25,6 +25,7 @@ Métodos usados:
 
 - `board.getTopics` e `board.getComments` para polling.
 - `board.createComment` para respostas e para o feed do jogo, sempre com `guid` determinístico. No feed, `reply_to_comment` é omitido.
+- `board.addTopic` para o tópico de resultado do bolão (token de usuário; `group_id`, `title`, `text`; responde o ID do tópico). O método não aceita `guid`: a chamada não é repetida pelo cliente, e o job procura entre os 50 tópicos mais recentes (`order=2`; os fixados vêm sempre primeiro) um com o mesmo título antes de criar outro. Erros esperados: 14 (captcha), 15 (sem permissão) e 703 (a comunidade exige 2FA na conta). `groups.getById?fields=can_create_topic` mostra, sem criar nada, se a conta do token pode criar tópicos.
 - `users.get` quando `board.getComments?extended=1` não fornece o perfil e, em lote (`getUserFirstNames`), para rankings, bolão e avisos de jogo. Nunca faça uma chamada por usuário em laço.
 - `groups.isMember` para excluir ex-membros dos rankings.
 - `messages.send` com token da comunidade e `random_id` determinístico e não zero.
@@ -51,6 +52,7 @@ Centralize chamadas em `src/clients/vk.ts`. Use POST, timeout, envelope validado
 | `!escalacao`                         | Escalação do próximo jogo ou a última, se ainda não saiu.           |
 | `!tabela` / `!rodada`                | Botafogo e vizinhos na Série A; rodada atual.                       |
 | `!palpite [2x1]`                     | Registra ou mostra o palpite para o próximo jogo.                   |
+| `!palpites`                          | Todos os palpites do próximo jogo, agrupados por placar.            |
 | `!bolao [ano]`                       | Ranking anual do bolão.                                             |
 | `!avisar` / `!avisar cancelar`       | Marca o autor 30 minutos antes do próximo jogo.                     |
 | `!stats`, `!top`, `!sequencia`       | Estatísticas individuais e ranking de atividade.                    |
@@ -77,6 +79,7 @@ Nenhuma dessas fontes tem contrato de API: valide com Zod, mantenha testes dos p
 ## Bolão, avisos e feed
 
 - `Prediction`: um palpite por usuário e partida ESPN (`matchId`), editável até o início. A conferência começa 1h45 após o início, usa o placar final da ESPN, anula palpites atualizados depois do início real e acompanha remarcações; partidas adiadas por mais de 7 dias têm os palpites anulados. Pontuação: placar exato 3, vencedor ou empate 1.
+- `BolaoTopic`: um tópico de resultado por partida, criado em `src/jobs/bolao-topics.ts` logo após a conferência, só para jogos com palpites conferidos nas últimas 12 horas (um deploy não anuncia jogos antigos). A tentativa é gravada antes da escrita na VK; falhas (como captcha, código 14) são repetidas com intervalo crescente, até cinco vezes.
 - `GameAlert`: um aviso por usuário e partida. Cada execução atualiza o horário com a ESPN, avisa 30 minutos antes e descarta avisos com mais de 15 minutos de atraso.
 - `MatchFeed`: estado do feed por partida e tópico (`MATCH_TOPIC_ID`) — chamada do dia de jogo, escalação, gols já publicados, placar final e resumo do bolão. Os `guid` determinísticos (`feed:<matchId>:<etapa>`) evitam duplicatas mesmo se o estado não for salvo.
 - `Camisa7Snapshot`: uma contagem por dia em São Paulo, gravada pelo job e por `!camisa7`.
@@ -87,7 +90,7 @@ Nenhuma dessas fontes tem contrato de API: valide com Zod, mantenha testes dos p
 - `TopicCursor`: último comentário observado por tópico.
 - `JobState`: watermark do polling, lease global e última tentativa da contagem do Camisa 7.
 - `Reminder`: compatível com documentos legados; estados `pending`, `processing`, `sent` e `failed`.
-- `Prediction`, `GameAlert`, `MatchFeed` e `Camisa7Snapshot`: ver a seção anterior.
+- `Prediction`, `BolaoTopic`, `GameAlert`, `MatchFeed` e `Camisa7Snapshot`: ver a seção anterior.
 - `ActivityEvent`: livro-razão imutável e idempotente de comentários e tópicos, único por comunidade e evento.
 - `ActivityBackfillState`: progresso global do backfill iniciado em 01/01/2026.
 - `ActivityBackfillTopic`: cursor, lease, retentativas e diagnóstico do backfill de cada tópico.

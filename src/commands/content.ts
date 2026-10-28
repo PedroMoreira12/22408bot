@@ -15,6 +15,7 @@ Todos começam com ! no início do comentário.
 🎯 BOLÃO
 !palpite 2x1 — palpite para o próximo jogo, com os gols do mandante primeiro
 !palpite — mostra o seu palpite
+!palpites — todos os palpites do próximo jogo, agrupados por placar
 !bolao [ano] — ranking: placar exato vale 3 pontos; vencedor ou empate vale 1
 
 📊 COMUNIDADE

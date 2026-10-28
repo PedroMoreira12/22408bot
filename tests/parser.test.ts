@@ -107,6 +107,8 @@ describe('parseCommand', () => {
     ['!palpite 1-1', { kind: 'prediction', home: 1, away: 1 }],
     ['!palpite 21x0', { kind: 'invalid-prediction' }],
     ['!palpite botafogo', { kind: 'invalid-prediction' }],
+    ['!palpites', { kind: 'prediction-list' }],
+    ['!palpites 2x1', { kind: 'prediction', home: 2, away: 1 }],
     ['!bolao', { kind: 'prediction-ranking' }],
     ['!bolão 2026', { kind: 'prediction-ranking', year: 2026 }],
     ['!avisar', { kind: 'game-alert' }],

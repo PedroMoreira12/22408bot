@@ -32,6 +32,7 @@ export type ParsedCommand =
   | { kind: 'lineup' }
   | { kind: 'prediction'; home: number; away: number }
   | { kind: 'prediction-status' }
+  | { kind: 'prediction-list' }
   | { kind: 'invalid-prediction' }
   | { kind: 'prediction-ranking'; year?: number }
   | { kind: 'game-alert' }
@@ -149,6 +150,10 @@ export function parseCommand(text: string): ParsedCommand | null {
       return { kind: 'lineup' };
     case 'palpite':
       return parsePrediction(argument);
+    case 'palpites':
+    case 'todospalpites':
+      // `!palpites 2x1` é tratado como palpite, já que a intenção é clara.
+      return argument ? parsePrediction(argument) : { kind: 'prediction-list' };
     case 'bolao':
     case 'bolão':
     case 'rankingpalpites':

@@ -168,6 +168,20 @@ export class VkClient {
     });
   }
 
+  /**
+   * Cria um tópico; o texto vira o primeiro comentário. `board.addTopic` não aceita `guid`,
+   * então não há retentativa aqui: um timeout pode ter criado o tópico, e quem chama verifica
+   * se ele já existe antes de tentar de novo.
+   */
+  async addTopic(title: string, text: string): Promise<number> {
+    return this.call(
+      'board.addTopic',
+      { group_id: this.config.groupId, title, text },
+      this.config.accessToken,
+      1,
+    );
+  }
+
   async sendMessage(userId: number, message: string, operationId: string): Promise<number> {
     return this.call(
       'messages.send',
@@ -184,6 +198,7 @@ export class VkClient {
     method: string,
     params: Record<string, string | number | boolean>,
     token = this.config.accessToken,
+    attempts = 3,
   ): Promise<T> {
     return withRetry(
       async () => {
@@ -210,7 +225,7 @@ export class VkClient {
         return payload.response;
       },
       {
-        attempts: 3,
+        attempts,
         baseDelayMs: 300,
         sleep: this.sleep,
         shouldRetry: isTransientError,
