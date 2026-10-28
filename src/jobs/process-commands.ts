@@ -36,7 +36,7 @@ export async function processPendingCommands(
         $set: { status: 'processing', leaseUntil: new Date(now.getTime() + LEASE_MILLISECONDS) },
         $inc: { attempts: 1 },
       },
-      { new: true, sort: { nextAttemptAt: 1, createdAt: 1 } },
+      { returnDocument: 'after', sort: { nextAttemptAt: 1, createdAt: 1 } },
     );
     if (!job) break;
 
