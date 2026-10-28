@@ -255,7 +255,7 @@ async function claimTopic(): Promise<ActivityBackfillTopicRecord | null> {
         leaseUntil: new Date(now.getTime() + TOPIC_LEASE_MILLISECONDS),
       },
     },
-    { new: true, sort: { topicUpdatedAt: -1, createdAt: 1 } },
+    { returnDocument: 'after', sort: { topicUpdatedAt: -1, createdAt: 1 } },
   ).lean();
 }
 

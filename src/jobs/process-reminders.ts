@@ -36,7 +36,7 @@ export async function processDueReminders(
         $set: { status: 'processing', leaseUntil: new Date(now.getTime() + LEASE_MILLISECONDS) },
         $inc: { attempts: 1 },
       },
-      { new: true, sort: { remindAt: 1 } },
+      { returnDocument: 'after', sort: { remindAt: 1 } },
     );
     if (!reminder) break;
 
