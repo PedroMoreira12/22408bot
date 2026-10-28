@@ -22,7 +22,10 @@ A lista completa, no formato publicado para os usuários, fica em `src/commands/
 
 - `!palpite 2x1`: palpite para o próximo jogo, com os gols do mandante primeiro. Pode ser alterado até o início da partida.
 - `!palpite`: mostra o palpite atual do autor.
+- `!palpites`: todos os palpites do próximo jogo (ou do jogo em andamento), agrupados por placar.
 - `!bolao [ano]`: ranking anual. Placar exato vale 3 pontos; acertar vencedor ou empate vale 1. Palpites enviados depois do início real do jogo são anulados.
+
+Quando um jogo com palpites válidos é conferido, o bot cria um tópico `[ON] Bolão: <placar> (<dd/mm>)` com o resultado, os gols, quem cravou, todos os palpites com a pontuação e o top 5 do ano. Jogos sem palpites não geram tópico. Esse tópico não depende de `MATCH_TOPIC_ID`.
 
 **Comunidade e utilidades**
 

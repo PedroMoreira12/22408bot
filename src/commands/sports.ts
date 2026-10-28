@@ -15,7 +15,7 @@ import {
 } from '../lib/time.js';
 import type { AgendaScope } from './parser.js';
 
-const MAX_MESSAGE_LENGTH = 3_500;
+export const MAX_MESSAGE_LENGTH = 3_500;
 const BROADCAST_SOURCE_LABELS: Record<NonNullable<BroadcastInfo['source']>, string> = {
   futebolnatv: 'futebolnatv.com.br',
   ge: 'ge.globo.com',
@@ -281,7 +281,7 @@ function formatDayLabel(date: string, now: Date): string {
   return `${weekdayName(date)}, ${formatShortDateKey(date)}${year}`;
 }
 
-function formatOutcome(match: FootballMatch): string {
+export function formatOutcome(match: FootballMatch): string {
   const { home, away } = match.score;
   if (home === null || away === null) return '';
   const botafogoGoals = match.homeTeam.isBotafogo ? home : away;
@@ -291,7 +291,7 @@ function formatOutcome(match: FootballMatch): string {
   return ' ➖ empate';
 }
 
-function formatGoals(goals: MatchGoal[]): string[] {
+export function formatGoals(goals: MatchGoal[]): string[] {
   if (goals.length === 0) return [];
   const byTeam = new Map<string, string[]>();
   for (const goal of goals) {

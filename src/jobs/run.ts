@@ -7,6 +7,7 @@ import { settlePredictions } from '../football/predictions.js';
 import { getFootballService } from '../football/service.js';
 import { log } from '../lib/logger.js';
 import { runActivityBackfill, type ActivityBackfillStats } from './backfill-activity.js';
+import { publishBolaoTopics, type BolaoTopicStats } from './bolao-topics.js';
 import { ensureDailyCamisa7Snapshot } from './camisa7-snapshot.js';
 import { acquireJobLease, releaseJobLease } from './lease.js';
 import { postBolaoSummaries, runMatchFeed } from './match-feed.js';
@@ -28,6 +29,7 @@ export interface BotJobResult {
   gameAlerts?: GameAlertStats;
   matchFeed?: { posts: number };
   predictions?: { matchesSettled: number };
+  bolaoTopics?: BolaoTopicStats;
   activityBackfill?: ActivityBackfillStats;
   durationMs: number;
 }
@@ -85,6 +87,9 @@ export async function runBotJob(): Promise<BotJobResult> {
       }
       return { matchesSettled: summaries.length };
     });
+    const bolaoTopics = await optional('bolao_topics', () =>
+      publishBolaoTopics(vk, football, deadline),
+    );
     await optional('camisa7_snapshot', () => ensureDailyCamisa7Snapshot());
 
     let activityBackfill: ActivityBackfillStats | undefined;
@@ -107,6 +112,7 @@ export async function runBotJob(): Promise<BotJobResult> {
       ...(gameAlerts ? { gameAlerts } : {}),
       ...(matchFeed ? { matchFeed } : {}),
       ...(predictions ? { predictions } : {}),
+      ...(bolaoTopics ? { bolaoTopics } : {}),
       ...(activityBackfill ? { activityBackfill } : {}),
       durationMs: Date.now() - startedAt,
     };

@@ -39,6 +39,11 @@ export interface PredictionRankingEntry {
   predictions: number;
 }
 
+export type MatchPrediction = Pick<
+  PredictionRecord,
+  'userId' | 'homeGoals' | 'awayGoals' | 'status' | 'points' | 'exact'
+>;
+
 export interface SettlementSummary {
   matchId: string;
   scoreLine: string;
@@ -105,6 +110,13 @@ export async function getPredictionStatus(
     Prediction.countDocuments({ matchId: match.id }),
   ]);
   return { match, prediction: prediction ?? null, totalForMatch };
+}
+
+/** Todos os palpites de uma partida, inclusive os conferidos e os anulados. */
+export async function listMatchPredictions(matchId: string): Promise<MatchPrediction[]> {
+  return Prediction.find({ matchId })
+    .select({ _id: 0, userId: 1, homeGoals: 1, awayGoals: 1, status: 1, points: 1, exact: 1 })
+    .lean();
 }
 
 export async function getPredictionRanking(season: number): Promise<PredictionRankingEntry[]> {

@@ -77,6 +77,22 @@ describe('VkClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('não repete a criação de tópico, que não tem guid', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 502));
+    const client = new VkClient(config, {
+      fetchImpl: fetchMock,
+      requestSpacingMs: 0,
+      sleep: () => Promise.resolve(),
+    });
+
+    await expect(client.addTopic('Bolão', 'texto')).rejects.toThrow('HTTP 502');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get('group_id')).toBe('123');
+    expect(body.get('title')).toBe('Bolão');
+    expect(body.get('text')).toBe('texto');
+  });
+
   it('não inclui tokens no erro', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
