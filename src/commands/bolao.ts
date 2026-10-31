@@ -4,11 +4,13 @@ import {
   type MatchPrediction,
   type PredictionRankingEntry,
 } from '../football/predictions.js';
-import type { FootballMatch, MatchReport } from '../football/types.js';
+import type { BroadcastInfo } from '../football/service.js';
+import { matchLabel, type FootballMatch, type MatchReport } from '../football/types.js';
 import { formatShortDateKey } from '../lib/time.js';
 import {
   formatGoals,
   formatNaturalList,
+  formatNextGame,
   formatOutcome,
   formatScoreLine,
   formatWhen,
@@ -27,9 +29,14 @@ interface ScoreGroup {
   points: number;
 }
 
-export interface BolaoResultTopic {
+export interface BolaoTopicContent {
   title: string;
   text: string;
+}
+
+export interface SeasonRanking {
+  season: number;
+  leaders: PredictionRankingEntry[];
 }
 
 /** Lista os palpites do jogo agrupados por placar, para o comando `!palpites`. */
@@ -89,7 +96,7 @@ export function formatBolaoResultTopic(
   leaders: PredictionRankingEntry[],
   names: Map<number, string>,
   season: number,
-): BolaoResultTopic {
+): BolaoTopicContent {
   const { match } = report;
   const settled = predictions.filter((prediction) => prediction.status === 'settled');
   const voided = predictions.filter((prediction) => prediction.status === 'void').length;
@@ -138,6 +145,52 @@ export function formatBolaoResultTopic(
     // "[ON]" é o prefixo padrão da comunidade para tópicos de jogo.
     title: `[ON] Bolão: ${formatScoreLine(match)} (${formatShortDateKey(match.date)})`,
     text: [...header, ...groups, ...footer].join('\n'),
+  };
+}
+
+/**
+ * Título e texto do tópico aberto 24 horas antes do jogo para juntar os palpites. `rankings` vem
+ * do ano do jogo para trás; anos anteriores sem palpites conferidos são omitidos.
+ */
+export function formatPregameTopic(
+  match: FootballMatch,
+  broadcasts: BroadcastInfo,
+  rankings: SeasonRanking[],
+  names: Map<number, string>,
+  now = new Date(),
+): BolaoTopicContent {
+  const lines = [
+    '🔥 Tá chegando a hora, alvinegro! Este é o tópico dos palpites do próximo jogo.',
+    '',
+    formatNextGame(match, broadcasts, now),
+    '',
+    `🎯 Deixe seu palpite aqui: !palpite 2x1 (= ${match.homeTeam.name} 2 x 1 ${match.awayTeam.name})`,
+    `✏️ Dá para mudar até o apito inicial. Placar exato vale ${EXACT_SCORE_POINTS} pts; vencedor ou empate, ${OUTCOME_POINTS} pt.`,
+  ];
+  const [current, ...past] = rankings;
+  if (current) {
+    lines.push('', `🏆 Ranking do bolão ${current.season}`);
+    if (current.leaders.length === 0) {
+      lines.push(`Ninguém pontuou ainda em ${current.season}. Que tal ser o primeiro?`);
+    }
+    lines.push(...current.leaders.map((entry, index) => formatRankingLine(entry, index, names)));
+  }
+  for (const { season, leaders } of past) {
+    if (leaders.length === 0) continue;
+    lines.push(
+      '',
+      `📜 Pódio final do bolão ${season}`,
+      ...leaders.map((entry, index) => formatRankingLine(entry, index, names)),
+    );
+  }
+  lines.push(
+    '',
+    '📌 Palpites do jogo: !palpites · Ranking completo: !bolao [ano] · Aviso 30 min antes: !avisar',
+  );
+  return {
+    // "[ON]" é o prefixo padrão da comunidade para tópicos de jogo.
+    title: `[ON] Palpites: ${matchLabel(match)} (${formatShortDateKey(match.date)})`,
+    text: lines.join('\n'),
   };
 }
 

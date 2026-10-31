@@ -7,6 +7,7 @@ import { localYear } from '../lib/time.js';
 import { BolaoTopic } from '../models/bolao-topic.js';
 import { Prediction } from '../models/prediction.js';
 import { errorMessage } from './process-commands.js';
+import { findOrAddTopic } from './vk-topics.js';
 
 const MAX_ATTEMPTS = 5;
 const RETRY_BASE_MILLISECONDS = 10 * 60_000;
@@ -15,8 +16,6 @@ const SETTLED_LOOKBACK_MILLISECONDS = 12 * 60 * 60_000;
 /** Limita a busca pelo índice `{ status, kickoffAt }`. */
 const KICKOFF_LOOKBACK_MILLISECONDS = 7 * 86_400_000;
 const RANKING_PREVIEW_SIZE = 5;
-/** Tópicos fixados vêm sempre primeiro no `board.getTopics`, mesmo ordenando por criação. */
-const DUPLICATE_CHECK_TOPICS = 50;
 
 export interface BolaoTopicStats {
   topics: number;
@@ -105,21 +104,5 @@ async function createTopic(
     [...predictions, ...leaders].map((entry) => Number(entry.userId)),
   );
   const { title, text } = formatBolaoResultTopic(report, predictions, leaders, names, season);
-
-  // Uma tentativa anterior pode ter criado o tópico sem conseguir registrar o sucesso.
-  const recent = await vk.getTopics(0, DUPLICATE_CHECK_TOPICS, 2);
-  const existing = recent.items.find((topic) => normalizeTitle(topic.title) === title);
-  if (existing) return { topicId: existing.id, title };
-  return { topicId: await vk.addTopic(title, text), title };
-}
-
-/** A VK devolve títulos com entidades HTML para alguns caracteres. */
-function normalizeTitle(title: string): string {
-  return title
-    .replace(/&quot;/gu, '"')
-    .replace(/&#0?39;/gu, "'")
-    .replace(/&lt;/gu, '<')
-    .replace(/&gt;/gu, '>')
-    .replace(/&amp;/gu, '&')
-    .trim();
+  return { topicId: await findOrAddTopic(vk, title, text), title };
 }

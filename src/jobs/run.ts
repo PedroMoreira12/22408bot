@@ -12,6 +12,7 @@ import { ensureDailyCamisa7Snapshot } from './camisa7-snapshot.js';
 import { acquireJobLease, releaseJobLease } from './lease.js';
 import { postBolaoSummaries, runMatchFeed } from './match-feed.js';
 import { pollVkDiscussions, type PollStats } from './poll-vk.js';
+import { publishPregameTopic, type PregameTopicStats } from './pregame-topic.js';
 import { processPendingCommands } from './process-commands.js';
 import { processGameAlerts, type GameAlertStats } from './process-game-alerts.js';
 import { processDueReminders } from './process-reminders.js';
@@ -30,6 +31,7 @@ export interface BotJobResult {
   matchFeed?: { posts: number };
   predictions?: { matchesSettled: number };
   bolaoTopics?: BolaoTopicStats;
+  pregameTopic?: PregameTopicStats;
   activityBackfill?: ActivityBackfillStats;
   durationMs: number;
 }
@@ -90,6 +92,7 @@ export async function runBotJob(): Promise<BotJobResult> {
     const bolaoTopics = await optional('bolao_topics', () =>
       publishBolaoTopics(vk, football, deadline),
     );
+    const pregameTopic = await optional('pregame_topic', () => publishPregameTopic(vk, football));
     await optional('camisa7_snapshot', () => ensureDailyCamisa7Snapshot());
 
     let activityBackfill: ActivityBackfillStats | undefined;
@@ -113,6 +116,7 @@ export async function runBotJob(): Promise<BotJobResult> {
       ...(matchFeed ? { matchFeed } : {}),
       ...(predictions ? { predictions } : {}),
       ...(bolaoTopics ? { bolaoTopics } : {}),
+      ...(pregameTopic ? { pregameTopic } : {}),
       ...(activityBackfill ? { activityBackfill } : {}),
       durationMs: Date.now() - startedAt,
     };

@@ -7,6 +7,8 @@ import type { FootballMatch } from './types.js';
 
 export const EXACT_SCORE_POINTS = 3;
 export const OUTCOME_POINTS = 1;
+/** Primeiro ano com palpites; os rankings anuais começam nele. */
+export const FIRST_BOLAO_YEAR = 2026;
 /** Jogos são conferidos a partir de 1h45 após o início, tempo mínimo de uma partida. */
 const SETTLEMENT_DELAY_MILLISECONDS = 105 * 60_000;
 /** Tolerância para palpites enviados segundos antes do apito inicial. */

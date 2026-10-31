@@ -7,6 +7,7 @@ import {
 } from '../football/game-alerts.js';
 import {
   EXACT_SCORE_POINTS,
+  FIRST_BOLAO_YEAR,
   getPredictionRanking,
   getPredictionStatus,
   listMatchPredictions,
@@ -46,7 +47,6 @@ const COMMUNITY_PAGE = 'https://vk.com/club228711116';
 const TOPIC_BASE_URL = 'https://vk.com/topic-73670797_';
 const UPEM_TOPIC_URL = 'https://vk.com/topic-73670797_41317973';
 const PRIVATE_MESSAGE_DENIED_CODES = new Set([901, 902, 914]);
-const FIRST_BOLAO_YEAR = 2026;
 const LINEUP_LOOKAHEAD_MILLISECONDS = 3 * 60 * 60_000;
 const SOURCE_UNAVAILABLE = Symbol('source-unavailable');
 

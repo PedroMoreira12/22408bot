@@ -27,6 +27,8 @@ A lista completa, no formato publicado para os usuários, fica em `src/commands/
 
 Quando um jogo com palpites válidos é conferido, o bot cria um tópico `[ON] Bolão: <placar> (<dd/mm>)` com o resultado, os gols, quem cravou, todos os palpites com a pontuação e o top 5 do ano. Jogos sem palpites não geram tópico. Esse tópico não depende de `MATCH_TOPIC_ID`.
 
+24 horas antes do próximo jogo (com horário confirmado), o bot também cria o tópico `[ON] Palpites: <jogo> (<dd/mm>)` para concentrar os palpites: informações da partida e canais, como em `!jogo`, a chamada para `!palpite` e o ranking do bolão dividido por ano — top 10 do ano atual e o pódio final de cada ano anterior. Também não depende de `MATCH_TOPIC_ID`.
+
 **Comunidade e utilidades**
 
 - `!stats`, `!top`, `!sequencia`, `!retrospectiva`, `!recordes`: estatísticas de atividade desde 2026.
