@@ -14,7 +14,7 @@ export async function findOrAddTopic(vk: VkClient, title: string, text: string):
 }
 
 /** A VK devolve títulos com entidades HTML para alguns caracteres. */
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title
     .replace(/&quot;/gu, '"')
     .replace(/&#0?39;/gu, "'")

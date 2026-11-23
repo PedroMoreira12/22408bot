@@ -20,6 +20,7 @@
   "dependencies": {
     "campeonato-brasileiro-api": "^2.0.1",
     "mongoose": "^9.9.1",
+    "node-html-parser": "^9.0.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {

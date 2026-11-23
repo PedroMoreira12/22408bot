@@ -198,8 +198,10 @@ function fakeFootball(overrides: Partial<FootballService> = {}): FootballService
   return {
     getUpcomingBotafogoMatches: vi.fn().mockResolvedValue([botafogoGame]),
     getNextBotafogoMatch: vi.fn().mockResolvedValue(botafogoGame),
+    getDiscussionMatch: vi.fn().mockResolvedValue(botafogoGame),
     getRecentBotafogoResults: vi.fn().mockResolvedValue([lastGame]),
     getBroadcasts: vi.fn().mockResolvedValue(broadcasts),
+    getOfficialMatchSheet: vi.fn().mockResolvedValue(null),
     getMatchReport: vi.fn().mockResolvedValue(lastReport),
     getAgendaMatches: vi.fn().mockResolvedValue([match({}), botafogoGame]),
     getBrasileirao: vi.fn().mockResolvedValue(competition),

@@ -16,7 +16,8 @@ import {
 import type { AgendaScope } from './parser.js';
 
 export const MAX_MESSAGE_LENGTH = 3_500;
-const BROADCAST_SOURCE_LABELS: Record<NonNullable<BroadcastInfo['source']>, string> = {
+export const BROADCAST_SOURCE_LABELS: Record<NonNullable<BroadcastInfo['source']>, string> = {
+  cbf: 'CBF',
   futebolnatv: 'futebolnatv.com.br',
   ge: 'ge.globo.com',
   espn: 'ESPN',

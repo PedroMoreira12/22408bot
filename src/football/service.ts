@@ -1,4 +1,7 @@
 import { getBrasileiraoCompetition, type BrasileiraoCompetition } from '../clients/brasileirao.js';
+import { CbfClient } from '../clients/cbf.js';
+import { ConmebolClient } from '../clients/conmebol.js';
+import { FerjClient } from '../clients/ferj.js';
 import { EspnClient, TRACKED_LEAGUES } from '../clients/espn.js';
 import { FutebolNaTvClient, type BroadcastListing } from '../clients/futebolnatv.js';
 import { GeClient } from '../clients/ge.js';
@@ -6,10 +9,11 @@ import { log } from '../lib/logger.js';
 import { addDays, isLastDayOfMonth, localDateKey } from '../lib/time.js';
 import type { Broadcast, FootballMatch, MatchReport } from './types.js';
 import { compareMatches, involvesBotafogo } from './types.js';
+import { clubKey, type OfficialMatchSheet, type SheetFixture } from './match-sheet.js';
 
 const BROADCAST_MATCH_WINDOW_MILLISECONDS = 3 * 60 * 60_000;
 
-export type BroadcastSource = 'futebolnatv' | 'ge' | 'espn';
+export type BroadcastSource = 'futebolnatv' | 'ge' | 'espn' | 'cbf';
 
 export interface BroadcastInfo {
   broadcasts: Broadcast[];
@@ -21,9 +25,11 @@ export interface FootballService {
   getUpcomingBotafogoMatches(): Promise<FootballMatch[]>;
   /** Jogo em andamento ou o próximo jogo confirmado do Botafogo. */
   getNextBotafogoMatch(now?: Date): Promise<FootballMatch | null>;
+  getDiscussionMatch(now: Date): Promise<FootballMatch | null>;
   /** Jogos encerrados do Botafogo, do mais recente para o mais antigo. */
   getRecentBotafogoResults(): Promise<FootballMatch[]>;
   getBroadcasts(match: FootballMatch): Promise<BroadcastInfo>;
+  getOfficialMatchSheet(fixture: SheetFixture): Promise<OfficialMatchSheet | null>;
   /** Gols e escalações; `null` quando a partida não vem de uma fonte com esses detalhes. */
   getMatchReport(matchId: string): Promise<MatchReport | null>;
   /** Jogos das competições acompanhadas nas datas informadas (`AAAA-MM-DD`). */
@@ -32,6 +38,9 @@ export interface FootballService {
 }
 
 export interface FootballSources {
+  cbf: Pick<CbfClient, 'getSheet' | 'getBotafogoMatches'>;
+  ferj: Pick<FerjClient, 'getSheet'>;
+  conmebol: Pick<ConmebolClient, 'getSheet'>;
   espn: Pick<
     EspnClient,
     | 'getBotafogoFixtures'
@@ -101,7 +110,42 @@ export class DefaultFootballService implements FootballService {
     }
   }
 
+  /** No dia do jogo nacional, o A/D/D segue o horário da organizadora, inclusive em remarcações. */
+  async getDiscussionMatch(now: Date): Promise<FootballMatch | null> {
+    const end = now.getTime() + 3_600_000;
+    const days = [...new Set([localDateKey(now), localDateKey(new Date(end))])];
+    const calendars = await Promise.all(
+      days.map((day) =>
+        this.sources.cbf.getBotafogoMatches(day).catch((error: unknown) => {
+          log('warn', 'discussion.cbf_schedule_failed', { day, error });
+          return null;
+        }),
+      ),
+    );
+    const due = calendars
+      .flatMap((list) => list ?? [])
+      .find((match) => {
+        const kickoff = Date.parse(match.kickoffAt);
+        return (
+          match.status === 'scheduled' && match.time && kickoff > now.getTime() && kickoff <= end
+        );
+      });
+    if (due) return due;
+    const next = await this.getNextBotafogoMatch(now);
+    // Uma tabela nacional disponível prevalece sobre a hora antiga em um calendário secundário.
+    if (
+      next &&
+      ['Brasileirão Série A', 'Copa do Brasil'].includes(next.competition) &&
+      calendars[days.indexOf(next.date)] != null
+    )
+      return null;
+    return next;
+  }
+
   async getBroadcasts(match: FootballMatch): Promise<BroadcastInfo> {
+    if (match.id.startsWith('cbf:') && match.broadcasts.length > 0) {
+      return { broadcasts: match.broadcasts, source: 'cbf' };
+    }
     if (!involvesBotafogo(match)) {
       return { broadcasts: match.broadcasts, source: match.broadcasts.length > 0 ? 'espn' : null };
     }
@@ -120,7 +164,10 @@ export class DefaultFootballService implements FootballService {
     }
     try {
       const geMatch = (await this.sources.ge.getBotafogoMatches()).find(
-        (candidate) => candidate.date === match.date,
+        (candidate) =>
+          candidate.date === match.date &&
+          clubKey(candidate.homeTeam.name) === clubKey(match.homeTeam.name) &&
+          clubKey(candidate.awayTeam.name) === clubKey(match.awayTeam.name),
       );
       if (geMatch && geMatch.broadcasts.length > 0) {
         return { broadcasts: geMatch.broadcasts, source: 'ge' };
@@ -135,6 +182,35 @@ export class DefaultFootballService implements FootballService {
   async getMatchReport(matchId: string): Promise<MatchReport | null> {
     if (!matchId.startsWith('espn:')) return null;
     return this.sources.espn.getMatchReport(matchId);
+  }
+
+  async getOfficialMatchSheet(fixture: SheetFixture): Promise<OfficialMatchSheet | null> {
+    const read = (source: 'cbf' | 'ferj' | 'conmebol') =>
+      this.sources[source].getSheet(fixture).catch((error: unknown) => {
+        log('warn', `football.${source}_sheet_failed`, { error });
+        return null;
+      });
+    switch (fixture.competition) {
+      case 'Brasileirão Série A':
+      case 'Copa do Brasil':
+        return read('cbf');
+      case 'Carioca':
+        return read('ferj');
+      case 'Libertadores':
+      case 'Sul-Americana': {
+        const [official, local] = await Promise.all([read('conmebol'), read('ferj')]);
+        if (!official) return local;
+        if (
+          local?.starters.length === 11 &&
+          official.kickoffAt?.getTime() === local.kickoffAt?.getTime()
+        ) {
+          return { ...official, starters: local.starters, lineupSource: 'FERJ' };
+        }
+        return official;
+      }
+      default:
+        return null;
+    }
   }
 
   async getAgendaMatches(dateKeys: string[]): Promise<FootballMatch[]> {
@@ -168,6 +244,9 @@ export function getFootballService(): FootballService {
 
 function defaultSources(): FootballSources {
   return {
+    cbf: new CbfClient(),
+    ferj: new FerjClient(),
+    conmebol: new ConmebolClient(),
     espn: new EspnClient(),
     ge: new GeClient(),
     futebolNaTv: new FutebolNaTvClient(),
@@ -198,7 +277,14 @@ function findListing(
       match.time === null
         ? localDateKey(new Date(listingKickoff)) === match.date
         : Math.abs(listingKickoff - kickoff) <= BROADCAST_MATCH_WINDOW_MILLISECONDS;
-    return sameTime && [listing.homeTeam, listing.awayTeam].some(isBotafogoName);
+    const bot = match.homeTeam.isBotafogo ? listing.homeTeam : listing.awayTeam;
+    const other = match.homeTeam.isBotafogo ? listing.awayTeam : listing.homeTeam;
+    return (
+      sameTime &&
+      isBotafogoName(bot) &&
+      clubKey(other) ===
+        clubKey(match.homeTeam.isBotafogo ? match.awayTeam.name : match.homeTeam.name)
+    );
   });
 }
 

@@ -336,6 +336,7 @@ function toMatchFromCompetition(
         ? (competition.status.type.shortDetail ?? competition.status.displayClock ?? null)
         : null,
     venue: venueName ? (VENUE_NAMES[venueName] ?? venueName) : null,
+    ...(competition.venue?.address?.city ? { venueCity: competition.venue.address.city } : {}),
     broadcasts: normalizeBroadcasts(
       (competition.broadcasts ?? []).flatMap((item) => item.names ?? []).map((name) => ({ name })),
     ),

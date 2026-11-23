@@ -14,6 +14,7 @@ export interface VkTopic {
   created_by?: number;
   updated: number;
   is_fixed?: number;
+  first_comment?: string;
 }
 
 export interface VkComment {
@@ -102,20 +103,31 @@ export class VkClient {
     return this.config.groupId;
   }
 
-  async getTopics(offset = 0, count = 100, order: 1 | 2 | -1 | -2 = 1): Promise<VkPage<VkTopic>> {
+  async getTopics(
+    offset = 0,
+    count = 100,
+    order: 1 | 2 | -1 | -2 = 1,
+    previewOpening = false,
+  ): Promise<VkPage<VkTopic>> {
     return this.call('board.getTopics', {
       group_id: this.config.groupId,
       order,
       offset,
       count,
+      ...(previewOpening ? { preview: 1, preview_length: 0 } : {}),
     });
   }
 
-  async getComments(topicId: number, offset = 0, count = 100): Promise<VkPage<VkComment>> {
+  async getComments(
+    topicId: number,
+    offset = 0,
+    count = 100,
+    sort: 'asc' | 'desc' = 'desc',
+  ): Promise<VkPage<VkComment>> {
     return this.call('board.getComments', {
       group_id: this.config.groupId,
       topic_id: topicId,
-      sort: 'desc',
+      sort,
       extended: 1,
       offset,
       count,

@@ -9,7 +9,7 @@ Referência oficial da VK: <https://dev.vk.com/en/reference>. A base das chamada
 ## Arquitetura
 
 - `POST /api/jobs/run` é chamado uma vez por minuto pelo cron-job.org com `Authorization: Bearer <CRON_SECRET>`.
-- Cada invocação adquire um lease global no MongoDB e executa, nesta ordem: polling dos tópicos, comandos pendentes, lembretes, avisos de jogo (`!avisar`), feed do jogo (se `MATCH_TOPIC_ID` estiver definido), conferência do bolão, tópico de resultado do bolão, tópico de palpites do próximo jogo, contagem diária do Camisa 7 e backfill de atividade.
+- Cada invocação adquire um lease global no MongoDB e executa, nesta ordem: polling dos tópicos, comandos pendentes, lembretes, avisos de jogo (`!avisar`), tópico A/D/D da partida, feed do jogo (se `MATCH_TOPIC_ID` estiver definido), conferência do bolão, tópico de resultado do bolão, tópico de palpites do próximo jogo, contagem diária do Camisa 7 e backfill de atividade.
 - Polling, comandos e lembretes são obrigatórios. As demais etapas são opcionais: só começam se restarem pelo menos 8 segundos do orçamento de 45 segundos, e uma falha nelas é registrada sem interromper o job.
 - `GET /api/health` é um health check sem dependência de banco ou configuração.
 - Cursores por tópico, jobs únicos por comentário e IDs determinísticos nas escritas VK evitam perda e duplicação.
@@ -73,10 +73,13 @@ Comandos de consulta têm cooldown por autor e chave (`agenda:tomorrow`, `top:5:
 - **futebolnatv.com.br** (`src/clients/futebolnatv.ts`): canais de transmissão do próximo jogo, lidos da página do Botafogo e das páginas de cada jogo (JSON-LD `SportsEvent` e painel “onde assistir”). Cache de 30 minutos; cite a fonte nas respostas.
 - **ge** (`src/clients/ge.ts`): reserva para calendário e agenda quando a ESPN falha, e para canais quando o futebolnatv não informa. A página do clube só traz o próximo jogo. Itens como “Cartola” não são transmissões e são removidos em `src/football/channels.ts`.
 - **campeonato-brasileiro-api**: exclusivo para `!tabela` e `!rodada`.
+- O A/D/D consulta o calendário diário e o detalhe JSON da **CBF**, a central da **FERJ** e as páginas oficiais do Botafogo na **CONMEBOL**. Valide competição, data, mando e adversário antes de aproveitar dados de fontes diferentes. Para a escalação, use apenas 11 titulares distintos e identificados na ficha do Botafogo.
 
 Nenhuma dessas fontes tem contrato de API: valide com Zod, mantenha testes dos parsers e falhe explicitamente se o formato mudar. Comandos esportivos não devem ficar presos em retentativas longas: `executeCommand` responde na hora que a fonte está indisponível e só repete erros da VK.
 
 ## Bolão, avisos e feed
+
+- `MatchDiscussion`: um A/D/D por comunidade e partida. O cron abre o tópico entre uma hora antes e o início confirmado. Antes de criar, procura um A/D/D recente no VK e lê a abertura para recuperar publicações interrompidas. A escalação pendente é consultada pelo confronto persistido por até seis horas após o início, mesmo que a agenda já tenha mudado. O comentário usa `guid` determinístico por comunidade e tópico. As métricas `matchDiscussion.topics` e `matchDiscussion.lineups` contam novos tópicos e comentários de escalação.
 
 - `Prediction`: um palpite por usuário e partida ESPN (`matchId`), editável até o início. A conferência começa 1h45 após o início, usa o placar final da ESPN, anula palpites atualizados depois do início real e acompanha remarcações; partidas adiadas por mais de 7 dias têm os palpites anulados. Pontuação: placar exato 3, vencedor ou empate 1.
 - `BolaoTopic`: um tópico de resultado por partida, criado em `src/jobs/bolao-topics.ts` logo após a conferência, só para jogos com palpites conferidos nas últimas 12 horas (um deploy não anuncia jogos antigos). A tentativa é gravada antes da escrita na VK; falhas (como captcha, código 14) são repetidas com intervalo crescente, até cinco vezes.

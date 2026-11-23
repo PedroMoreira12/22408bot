@@ -27,6 +27,13 @@ function sources(
   overrides: Partial<{ [K in keyof FootballSources]: Partial<FootballSources[K]> }> = {},
 ) {
   return {
+    cbf: {
+      getBotafogoMatches: vi.fn().mockResolvedValue([]),
+      getSheet: vi.fn().mockResolvedValue(null),
+      ...overrides.cbf,
+    },
+    ferj: { getSheet: vi.fn().mockResolvedValue(null), ...overrides.ferj },
+    conmebol: { getSheet: vi.fn().mockResolvedValue(null), ...overrides.conmebol },
     espn: {
       getBotafogoFixtures: vi.fn().mockResolvedValue([match({})]),
       getBotafogoResults: vi.fn().mockResolvedValue([]),
@@ -49,6 +56,38 @@ function sources(
 }
 
 describe('DefaultFootballService', () => {
+  it('agenda o A/D/D pela tabela oficial mesmo quando o calendário da ESPN está desatualizado', async () => {
+    const kickoff = new Date('2026-10-24T19:30:00Z');
+    const opening = new Date(kickoff.getTime() - 3_600_000);
+    const official = match({ id: 'cbf:1' });
+    const service = new DefaultFootballService(
+      sources({ cbf: { getBotafogoMatches: vi.fn().mockResolvedValue([official]) } }),
+    );
+    expect(await service.getDiscussionMatch(opening)).toEqual(official);
+    expect(await service.getDiscussionMatch(new Date(opening.getTime() - 1))).toBeNull();
+    expect(await service.getDiscussionMatch(kickoff)).toBeNull();
+    const postponed = new DefaultFootballService(
+      sources({ cbf: { getBotafogoMatches: vi.fn().mockResolvedValue([match({ time: null })]) } }),
+    );
+    expect(await postponed.getDiscussionMatch(opening)).toBeNull();
+    const unavailable = new DefaultFootballService(
+      sources({ cbf: { getBotafogoMatches: vi.fn().mockRejectedValue(new Error('HTTP 503')) } }),
+    );
+    expect((await unavailable.getDiscussionMatch(opening))?.id).toBe('espn:1');
+  });
+
+  it('considera o dia seguinte em Brasília se a hora de antecedência atravessar a meia-noite', async () => {
+    const next = match({
+      id: 'cbf:1',
+      date: '2026-10-25',
+      time: '00:15',
+      kickoffAt: '2026-10-25T03:15:00Z',
+    });
+    const daily = vi.fn((date: string) => Promise.resolve(date === next.date ? [next] : []));
+    const service = new DefaultFootballService(sources({ cbf: { getBotafogoMatches: daily } }));
+    expect(await service.getDiscussionMatch(new Date('2026-10-25T02:15:00Z'))).toEqual(next);
+    expect(daily.mock.calls).toEqual([['2026-10-24'], ['2026-10-25']]);
+  });
   it('usa a ESPN para o calendário e o ge como reserva', async () => {
     const geMatch = match({ id: 'ge:9' });
     const fallback = sources({

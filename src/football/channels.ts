@@ -28,6 +28,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   'prime video': 'Prime Video',
   'prime vídeo': 'Prime Video',
   'amazon prime video': 'Prime Video',
+  'amazon prime': 'Prime Video',
   'disney+': 'Disney+',
   espn: 'ESPN',
   'paramount+': 'Paramount+',

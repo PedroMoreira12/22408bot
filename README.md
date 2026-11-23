@@ -18,6 +18,14 @@ A lista completa, no formato publicado para os usuários, fica em `src/commands/
 - `!tabela` e `!rodada`: Botafogo e vizinhos na Série A; jogos da rodada atual.
 - `!avisar` / `!avisar cancelar`: marca o autor 30 minutos antes do próximo jogo, acompanhando mudanças de horário.
 
+**Tópico A/D/D (antes, durante e depois)**
+
+Uma hora antes de cada partida do Botafogo com horário confirmado, o cron abre um tópico para a torcida conversar sobre o jogo. Por exemplo, um jogo às 20h abre o A/D/D às 19h de Brasília. A ficha traz mandante e visitante, competição e rodada ou fase, data, horário, estádio, transmissão e árbitro principal. Local, canais e arbitragem podem aparecer como “A confirmar”.
+
+A CBF fornece a tabela e as fichas do Brasileirão e da Copa do Brasil. Para o Carioca, o bot consulta a FERJ. Na Libertadores e na Sul-Americana, usa o estádio e o árbitro da central da CONMEBOL e lê os titulares quando a FERJ também os publica. O link da ficha permite consultar diretamente a escalação exibida no painel interativo da competição.
+
+Os 11 titulares do Botafogo entram na abertura quando a ficha oficial já traz a lista completa. Se a lista sair depois, o bot publica um comentário no mesmo A/D/D. O tópico funciona com o cron e as credenciais existentes, independentemente do tópico do bolão e de `MATCH_TOPIC_ID`.
+
 **Bolão**
 
 - `!palpite 2x1`: palpite para o próximo jogo, com os gols do mandante primeiro. Pode ser alterado até o início da partida.

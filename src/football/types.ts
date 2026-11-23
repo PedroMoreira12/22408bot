@@ -28,6 +28,7 @@ export interface FootballMatch {
   /** Minuto ou situação de um jogo em andamento, como `67'` ou `Intervalo`. */
   liveDetail: string | null;
   venue: string | null;
+  venueCity?: string;
   broadcasts: Broadcast[];
   homeTeam: FootballTeam;
   awayTeam: FootballTeam;

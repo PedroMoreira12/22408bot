@@ -10,6 +10,7 @@ import { runActivityBackfill, type ActivityBackfillStats } from './backfill-acti
 import { publishBolaoTopics, type BolaoTopicStats } from './bolao-topics.js';
 import { ensureDailyCamisa7Snapshot } from './camisa7-snapshot.js';
 import { acquireJobLease, releaseJobLease } from './lease.js';
+import { publishMatchDiscussion, type DiscussionStats } from './match-discussion.js';
 import { postBolaoSummaries, runMatchFeed } from './match-feed.js';
 import { pollVkDiscussions, type PollStats } from './poll-vk.js';
 import { publishPregameTopic, type PregameTopicStats } from './pregame-topic.js';
@@ -28,6 +29,7 @@ export interface BotJobResult {
   commands?: { completed: number; skipped: number; failed: number };
   reminders?: { sent: number; failed: number };
   gameAlerts?: GameAlertStats;
+  matchDiscussion?: DiscussionStats;
   matchFeed?: { posts: number };
   predictions?: { matchesSettled: number };
   bolaoTopics?: BolaoTopicStats;
@@ -78,6 +80,9 @@ export async function runBotJob(): Promise<BotJobResult> {
     const gameAlerts = await optional('game_alerts', () =>
       processGameAlerts(vk, football, deadline),
     );
+    const matchDiscussion = await optional('match_discussion', () =>
+      publishMatchDiscussion(vk, football, deadline),
+    );
     const { matchTopicId } = config;
     const matchFeed = matchTopicId
       ? await optional('match_feed', () => runMatchFeed(vk, football, matchTopicId, deadline))
@@ -113,6 +118,7 @@ export async function runBotJob(): Promise<BotJobResult> {
       commands,
       reminders,
       ...(gameAlerts ? { gameAlerts } : {}),
+      ...(matchDiscussion ? { matchDiscussion } : {}),
       ...(matchFeed ? { matchFeed } : {}),
       ...(predictions ? { predictions } : {}),
       ...(bolaoTopics ? { bolaoTopics } : {}),
