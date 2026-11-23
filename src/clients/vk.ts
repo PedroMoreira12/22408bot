@@ -22,7 +22,15 @@ export interface VkComment {
   from_id: number;
   date: number;
   text: string;
+  can_edit?: 0 | 1;
+  attachments?: VkCommentAttachment[];
 }
+
+type BoardMediaType = 'photo' | 'video' | 'audio' | 'doc';
+type VkCommentAttachment = {
+  type: string;
+  link?: { url: string };
+} & Partial<Record<BoardMediaType, { owner_id: number; id: number; access_key?: string }>>;
 
 export interface VkProfile {
   id: number;
@@ -180,6 +188,37 @@ export class VkClient {
     });
   }
 
+  /** Retorna false quando a abertura deve ser preservada e a escalação precisa de outro comentário. */
+  async editOwnComment(topicId: number, comment: VkComment, message: string): Promise<boolean> {
+    if (comment.can_edit === 0 || comment.from_id <= 0) return false;
+    const attachments = attachmentReferences(comment);
+    if (!attachments) return false;
+    const [user] = await this.call<Array<{ id: number }>>('users.get', {});
+    if (!user || !Number.isSafeInteger(user.id))
+      throw new Error('Usuário do token VK indisponível');
+    if (comment.from_id !== user.id) return false;
+    try {
+      // A VK substitui o texto inteiro. Após um timeout, o cron relê a abertura antes de tentar de novo.
+      const result = await this.call<number>(
+        'board.editComment',
+        {
+          group_id: this.groupId,
+          topic_id: topicId,
+          comment_id: comment.id,
+          message,
+          ...(attachments.length ? { attachments: attachments.join(',') } : {}),
+        },
+        this.config.accessToken,
+        1,
+      );
+      if (result !== 1) throw new Error('Edição do comentário sem confirmação da VK');
+      return true;
+    } catch (error) {
+      if (error instanceof VkApiError && [7, 15, 183, 600].includes(error.code)) return false;
+      throw error;
+    }
+  }
+
   /**
    * Cria um tópico; o texto vira o primeiro comentário. `board.addTopic` não aceita `guid`,
    * então não há retentativa aqui: um timeout pode ter criado o tópico, e quem chama verifica
@@ -251,6 +290,24 @@ export class VkClient {
     this.nextRequestAt = Math.max(now, this.nextRequestAt) + this.requestSpacingMs;
     if (waitMs > 0) await this.sleep(waitMs);
   }
+}
+
+function attachmentReferences(comment: VkComment): string[] | null {
+  const references: string[] = [];
+  for (const attachment of comment.attachments ?? []) {
+    const { type } = attachment;
+    // A prévia de um endereço presente no texto é gerada pela própria VK.
+    if (type === 'link' && attachment.link?.url && comment.text.includes(attachment.link.url))
+      continue;
+    if (type !== 'photo' && type !== 'video' && type !== 'audio' && type !== 'doc') return null;
+    const media = attachment[type];
+    if (!media || !Number.isSafeInteger(media.owner_id) || !Number.isSafeInteger(media.id))
+      return null;
+    references.push(
+      `${type}${media.owner_id}_${media.id}${media.access_key ? '_' + media.access_key : ''}`,
+    );
+  }
+  return references;
 }
 
 export function deterministicGuid(value: string): string {

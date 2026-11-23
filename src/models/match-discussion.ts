@@ -24,6 +24,7 @@ const discussionSchema = new Schema(
     retryAt: { type: Date, required: true },
     topicId: Number,
     lineupPostedAt: Date,
+    lineupAsComment: Boolean,
   },
   { timestamps: true },
 );

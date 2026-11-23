@@ -1,5 +1,7 @@
-import type { VkClient, VkTopic } from '../clients/vk.js';
+import type { VkClient, VkComment, VkTopic } from '../clients/vk.js';
 import {
+  ESPN_LINEUP_HEADING,
+  formatEspnLineup,
   formatMatchDiscussion,
   formatOfficialLineup,
   LINEUP_HEADING,
@@ -8,6 +10,7 @@ import {
   clubKey,
   normalizedName,
   sheetFixture,
+  type OfficialMatchSheet,
   type SheetFixture,
 } from '../football/match-sheet.js';
 import type { BroadcastInfo, FootballService } from '../football/service.js';
@@ -48,7 +51,7 @@ export async function publishMatchDiscussion(
     .lean();
   if (pending) {
     try {
-      stats.lineups = await publishPendingLineup(vk, football, pending, now);
+      stats.lineups = await publishPendingLineup(vk, football, pending, now, deadline);
     } catch (error) {
       log('warn', 'discussion.lineup_failed', { matchId: pending.matchId, error });
     }
@@ -113,8 +116,12 @@ async function openDiscussion(
     );
     return 0;
   }
-  const tv = sheet?.broadcasts.length ? EMPTY_TV : await localBroadcasts(football, match, deadline);
-  const opening = formatMatchDiscussion(match, kickoff, sheet, tv, now);
+  const openingDeadline = Math.min(deadline, started + (kickoff.getTime() - now.getTime()));
+  const [tv, lineup] = await Promise.all([
+    sheet?.broadcasts.length ? EMPTY_TV : localBroadcasts(football, match, openingDeadline),
+    readLineup(football, match.id, currentFixture, sheet, openingDeadline),
+  ]);
+  const opening = formatMatchDiscussion(match, kickoff, sheet, tv, now, lineup);
   const title = state?.title ?? opening.title;
   if (Date.now() >= deadline) return 0;
 
@@ -159,6 +166,7 @@ async function publishPendingLineup(
   football: FootballService,
   state: MatchDiscussionRecord,
   now: Date,
+  deadline: number,
 ): Promise<number> {
   const key = { groupId: vk.groupId, matchId: state.matchId };
   let topicId = state.topicId;
@@ -179,17 +187,53 @@ async function publishPendingLineup(
     if (included) return 0;
   }
   const sheet = await football.getOfficialMatchSheet(state.fixture);
+  const kickoff = sheet ? sheet.kickoffAt : state.kickoffAt;
   if (
-    !sheet?.kickoffAt ||
-    sheet.kickoffAt.getTime() - now.getTime() > HOUR ||
-    now.getTime() - sheet.kickoffAt.getTime() > LINEUP_WINDOW
+    !kickoff ||
+    kickoff.getTime() - now.getTime() > HOUR ||
+    now.getTime() - kickoff.getTime() > LINEUP_WINDOW
   )
     return 0;
-  const message = formatOfficialLineup(sheet);
-  if (!message) return 0;
-  await vk.createComment(topicId, null, message, `discussion:${vk.groupId}:${topicId}:lineup`);
+  const fixture = { ...state.fixture, date: localDateKey(kickoff), time: localTime(kickoff) };
+  const message = await readLineup(football, state.matchId, fixture, sheet, deadline);
+  if (!message || Date.now() >= deadline) return 0;
+  const opening = (await vk.getComments(topicId, 0, 1, 'asc')).items[0];
+  if (!opening || Date.now() >= deadline) return 0;
+  const alreadyIncluded = hasLineup(opening.text);
+  if (!alreadyIncluded) await appendLineup(vk, state, topicId, opening, message);
   await MatchDiscussion.updateOne(key, { $set: { lineupPostedAt: now } });
-  return 1;
+  return alreadyIncluded ? 0 : 1;
+}
+
+async function appendLineup(
+  vk: VkClient,
+  state: MatchDiscussionRecord,
+  topicId: number,
+  opening: VkComment,
+  message: string,
+): Promise<void> {
+  const text = opening.text ? `${opening.text}\n\n${message}` : message;
+  if (!state.lineupAsComment && (await vk.editOwnComment(topicId, opening, text))) {
+    const saved = (await vk.getComments(topicId, 0, 1, 'asc')).items[0];
+    if (saved?.id !== opening.id || !hasLineup(saved.text))
+      throw new Error('Escalação ainda não confirmada na leitura da abertura da VK');
+    log('info', 'discussion.lineup_edited', {
+      matchId: state.matchId,
+      topicId,
+      commentId: opening.id,
+    });
+    return;
+  }
+  // Fixar a forma de entrega antes do envio evita duplicação se o banco cair após o comentário.
+  if (!state.lineupAsComment) {
+    await MatchDiscussion.updateOne(
+      { groupId: vk.groupId, matchId: state.matchId },
+      {
+        $set: { lineupAsComment: true },
+      },
+    );
+  }
+  await vk.createComment(topicId, null, message, `discussion:${vk.groupId}:${topicId}:lineup`);
 }
 
 async function findDiscussion(
@@ -216,7 +260,31 @@ async function findDiscussion(
 async function openingHasLineup(vk: VkClient, topic: VkTopic): Promise<boolean> {
   const opening =
     topic.first_comment ?? (await vk.getComments(topic.id, 0, 1, 'asc')).items[0]?.text;
-  return opening?.includes(LINEUP_HEADING) ?? false;
+  return hasLineup(opening ?? '');
+}
+
+function hasLineup(text: string): boolean {
+  return text.includes(LINEUP_HEADING) || text.includes(ESPN_LINEUP_HEADING);
+}
+
+async function readLineup(
+  football: FootballService,
+  matchId: string,
+  fixture: SheetFixture,
+  sheet: OfficialMatchSheet | null,
+  deadline: number,
+): Promise<string | null> {
+  const official = formatOfficialLineup(sheet);
+  if (official) return official;
+  const budget = Math.min(4000, deadline - Date.now() - 2500);
+  if (budget <= 0) return null;
+  try {
+    const report = await boundedRead(football.getMatchReport(matchId, fixture), budget, null);
+    return formatEspnLineup(report);
+  } catch (error) {
+    log('warn', 'discussion.espn_lineup_failed', { matchId, error });
+    return null;
+  }
 }
 
 /** As fontes secundárias podem repetir requisições. Limite a espera do cron apenas em leituras. */

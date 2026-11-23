@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { deterministicGuid, deterministicRandomId, VkClient } from '../src/clients/vk.js';
+import type { VkComment } from '../src/clients/vk.js';
 
 const config = {
   accessToken: 'user-secret-token',
@@ -60,6 +61,76 @@ describe('VkClient', () => {
     );
     expect(fetchMock).toHaveBeenCalledOnce();
     expect((fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams).get('user_ids')).toBe('1,2');
+  });
+
+  const opening: VkComment = {
+    id: 82,
+    from_id: 51,
+    date: 12,
+    text: 'Abertura https://www.cbf.com.br/jogo',
+  };
+  it('edita o ID do comentário com o token do autor e mantém os anexos identificáveis', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ response: [{ id: 51 }] }))
+      .mockResolvedValueOnce(jsonResponse({ response: 1 }));
+    const client = new VkClient(config, { fetchImpl, requestSpacingMs: 0 });
+    const message = opening.text + '\n\nEscalação';
+    expect(
+      await client.editOwnComment(
+        10,
+        {
+          ...opening,
+          attachments: [
+            { type: 'link', link: { url: 'https://www.cbf.com.br/jogo' } },
+            { type: 'photo', photo: { owner_id: -8, id: 4, access_key: 'abc' } },
+            { type: 'doc', doc: { owner_id: 51, id: 6 } },
+          ],
+        },
+        message,
+      ),
+    ).toBe(true);
+    const [url, init] = fetchImpl.mock.calls[1]!;
+    expect(url).toBe('https://api.vk.com/method/board.editComment');
+    expect(Object.fromEntries(init?.body as URLSearchParams)).toMatchObject({
+      group_id: '123',
+      topic_id: '10',
+      comment_id: '82',
+      message,
+      attachments: 'photo-8_4_abc,doc51_6',
+      access_token: config.accessToken,
+    });
+  });
+
+  it('preserva comentários alheios, sem permissão ou com anexo que não pode reenviar', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ response: [{ id: 99 }] }));
+    const client = new VkClient(config, { fetchImpl, requestSpacingMs: 0 });
+    expect(await client.editOwnComment(10, { ...opening, can_edit: 0 }, 'novo')).toBe(false);
+    expect(
+      await client.editOwnComment(10, { ...opening, attachments: [{ type: 'sticker' }] }, 'novo'),
+    ).toBe(false);
+    expect(await client.editOwnComment(10, { ...opening, can_edit: 1 }, 'novo')).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://api.vk.com/method/users.get');
+  });
+
+  it('diferencia recusa de permissão, erro transitório e resposta de edição inválida', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new VkClient(config, { fetchImpl, requestSpacingMs: 0 });
+    for (const result of [
+      jsonResponse({ error: { error_code: 15, error_msg: 'Access denied' } }),
+      jsonResponse({}, 502),
+      jsonResponse({ response: 0 }),
+    ])
+      fetchImpl
+        .mockResolvedValueOnce(jsonResponse({ response: [{ id: 51 }] }))
+        .mockResolvedValueOnce(result);
+    await expect(client.editOwnComment(10, opening, 'novo')).resolves.toBe(false);
+    await expect(client.editOwnComment(10, opening, 'novo')).rejects.toThrow('HTTP 502');
+    await expect(client.editOwnComment(10, opening, 'novo')).rejects.toThrow('sem confirmação');
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
   });
 
   it('repete falhas transitórias e recupera', async () => {

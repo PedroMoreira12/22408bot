@@ -24,7 +24,7 @@ Uma hora antes de cada partida do Botafogo com horário confirmado, o cron abre 
 
 A CBF fornece a tabela e as fichas do Brasileirão e da Copa do Brasil. Para o Carioca, o bot consulta a FERJ. Na Libertadores e na Sul-Americana, usa o estádio e o árbitro da central da CONMEBOL e lê os titulares quando a FERJ também os publica. O link da ficha permite consultar diretamente a escalação exibida no painel interativo da competição.
 
-Os 11 titulares do Botafogo entram na abertura quando a ficha oficial já traz a lista completa. Se a lista sair depois, o bot publica um comentário no mesmo A/D/D. O tópico funciona com o cron e as credenciais existentes, independentemente do tópico do bolão e de `MATCH_TOPIC_ID`.
+O A/D/D dá preferência aos titulares da ficha oficial. Se ela estiver indisponível ou incompleta, o bot procura o mesmo confronto na ESPN e aceita apenas 11 jogadores distintos do Botafogo marcados como titulares. A publicação identifica a fonte e, quando usa a ESPN, inclui o link da partida. Se os nomes saírem depois da abertura, o cron consulta as fontes por até seis horas após o início. Assim que obtém os onze, acrescenta a escalação ao fim do primeiro comentário e confere a edição na VK. Se a abertura for de outra conta, a VK negar a edição ou houver mídia que o bot não consiga preservar, ele publica a escalação em um comentário no mesmo tópico. O A/D/D usa as credenciais existentes e funciona independentemente do tópico do bolão e de `MATCH_TOPIC_ID`.
 
 **Bolão**
 

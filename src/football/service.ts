@@ -6,7 +6,7 @@ import { EspnClient, TRACKED_LEAGUES } from '../clients/espn.js';
 import { FutebolNaTvClient, type BroadcastListing } from '../clients/futebolnatv.js';
 import { GeClient } from '../clients/ge.js';
 import { log } from '../lib/logger.js';
-import { addDays, isLastDayOfMonth, localDateKey } from '../lib/time.js';
+import { addDays, isLastDayOfMonth, localDateKey, saoPauloDate } from '../lib/time.js';
 import type { Broadcast, FootballMatch, MatchReport } from './types.js';
 import { compareMatches, involvesBotafogo } from './types.js';
 import { clubKey, type OfficialMatchSheet, type SheetFixture } from './match-sheet.js';
@@ -30,8 +30,8 @@ export interface FootballService {
   getRecentBotafogoResults(): Promise<FootballMatch[]>;
   getBroadcasts(match: FootballMatch): Promise<BroadcastInfo>;
   getOfficialMatchSheet(fixture: SheetFixture): Promise<OfficialMatchSheet | null>;
-  /** Gols e escalações; `null` quando a partida não vem de uma fonte com esses detalhes. */
-  getMatchReport(matchId: string): Promise<MatchReport | null>;
+  /** Com o confronto informado, localiza e confere o resumo mesmo para IDs de outra fonte. */
+  getMatchReport(matchId: string, fixture?: SheetFixture): Promise<MatchReport | null>;
   /** Jogos das competições acompanhadas nas datas informadas (`AAAA-MM-DD`). */
   getAgendaMatches(dateKeys: string[]): Promise<FootballMatch[]>;
   getBrasileirao(): Promise<BrasileiraoCompetition>;
@@ -179,9 +179,26 @@ export class DefaultFootballService implements FootballService {
     return { broadcasts: match.broadcasts, source: match.broadcasts.length > 0 ? 'espn' : null };
   }
 
-  async getMatchReport(matchId: string): Promise<MatchReport | null> {
-    if (!matchId.startsWith('espn:')) return null;
-    return this.sources.espn.getMatchReport(matchId);
+  async getMatchReport(matchId: string, fixture?: SheetFixture): Promise<MatchReport | null> {
+    let espnMatchId = matchId;
+    if (!espnMatchId.startsWith('espn:')) {
+      if (!fixture) return null;
+      const league = Object.keys(TRACKED_LEAGUES).find(
+        (slug) => TRACKED_LEAGUES[slug] === fixture.competition,
+      );
+      if (!league) return null;
+      const kickoff = saoPauloDate(fixture.date, fixture.time);
+      const month = kickoff.toISOString().slice(0, 7).replace('-', '');
+      const [candidate, another] = (await this.sources.espn.getLeagueMonth(league, month)).filter(
+        (match) => matchesFixture(match, fixture),
+      );
+      if (!candidate || another) return null;
+      espnMatchId = candidate.id;
+    }
+    const report = await this.sources.espn.getMatchReport(espnMatchId);
+    if (fixture && (report.match.id !== espnMatchId || !matchesFixture(report.match, fixture)))
+      return null;
+    return report;
   }
 
   async getOfficialMatchSheet(fixture: SheetFixture): Promise<OfficialMatchSheet | null> {
@@ -264,6 +281,21 @@ function monthsCovering(dateKey: string): string[] {
 
 function deduplicate(matches: FootballMatch[]): FootballMatch[] {
   return [...new Map(matches.map((match) => [match.id, match])).values()].sort(compareMatches);
+}
+
+function matchesFixture(match: FootballMatch, fixture: SheetFixture): boolean {
+  const [botafogo, opponent] = fixture.botafogoHome
+    ? [match.homeTeam, match.awayTeam]
+    : [match.awayTeam, match.homeTeam];
+  return (
+    match.status !== 'postponed' &&
+    match.competition === fixture.competition &&
+    match.date === fixture.date &&
+    match.time === fixture.time &&
+    botafogo.isBotafogo &&
+    !opponent.isBotafogo &&
+    clubKey(opponent.name) === clubKey(fixture.botafogoHome ? fixture.away : fixture.home)
+  );
 }
 
 function findListing(

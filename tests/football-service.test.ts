@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { displayChannelName, normalizeBroadcasts } from '../src/football/channels.js';
+import { sheetFixture } from '../src/football/match-sheet.js';
 import { DefaultFootballService, type FootballSources } from '../src/football/service.js';
 import type { FootballMatch } from '../src/football/types.js';
 import { formatCountdown } from '../src/lib/time.js';
@@ -56,6 +57,71 @@ function sources(
 }
 
 describe('DefaultFootballService', () => {
+  it('reencontra o resumo de um A/D/D pelo confronto salvo, inclusive após a virada do mês UTC', async () => {
+    const game = match({
+      date: '2026-10-31',
+      time: '21:30',
+      kickoffAt: '2026-11-01T00:30:00Z',
+      status: 'finished',
+    });
+    const fixture = sheetFixture(game)!;
+    const report = { match: game, goals: [], lineups: [] };
+    const getMatchReport = vi.fn().mockResolvedValue(report);
+    const getLeagueMonth = vi.fn().mockResolvedValue([match({}), game]);
+    const service = new DefaultFootballService(
+      sources({ espn: { getLeagueMonth, getMatchReport } }),
+    );
+    for (const id of ['cbf:9', 'ge:42']) {
+      expect(await service.getMatchReport(id, fixture)).toEqual(report);
+    }
+    expect(getLeagueMonth).toHaveBeenCalledWith('bra.1', '202611');
+    expect(getMatchReport).toHaveBeenCalledWith(game.id);
+    expect(await service.getMatchReport('cbf:9')).toBeNull();
+  });
+
+  it('só usa um jogo inequívoco com a competição, horário, mando e adversário da ficha', async () => {
+    const game = match({});
+    const fixture = sheetFixture(game)!;
+    const getMatchReport = vi.fn();
+    const getLeagueMonth = vi.fn();
+    const service = new DefaultFootballService(
+      sources({ espn: { getLeagueMonth, getMatchReport } }),
+    );
+    for (const candidates of [
+      [game, { ...game, id: 'espn:2' }],
+      [match({ competition: 'Copa do Brasil' })],
+      [match({ date: '2026-10-25' })],
+      [match({ time: '18:30' })],
+      [match({ time: null })],
+      [match({ status: 'postponed' })],
+      [match({ homeTeam: game.awayTeam, awayTeam: game.homeTeam })],
+      [match({ awayTeam: team('Botafogo-SP') })],
+      [match({ homeTeam: team('São Paulo') })],
+    ]) {
+      getLeagueMonth.mockResolvedValueOnce(candidates);
+      expect(await service.getMatchReport('cbf:9', fixture)).toBeNull();
+    }
+    expect(getMatchReport).not.toHaveBeenCalled();
+  });
+
+  it('confere também o ID e os times no próprio resumo, inclusive com um ID ESPN já salvo', async () => {
+    const game = match({});
+    const fixture = sheetFixture(game)!;
+    const getMatchReport = vi
+      .fn()
+      .mockResolvedValueOnce({ match: match({ homeTeam: team('Grêmio') }) })
+      .mockResolvedValueOnce({ match: match({ id: 'espn:99' }) })
+      .mockResolvedValueOnce({ match: game });
+    const getLeagueMonth = vi.fn().mockResolvedValue([game]);
+    const service = new DefaultFootballService(
+      sources({ espn: { getLeagueMonth, getMatchReport } }),
+    );
+    expect(await service.getMatchReport('cbf:9', fixture)).toBeNull();
+    expect(await service.getMatchReport(game.id, fixture)).toBeNull();
+    expect((await service.getMatchReport(game.id, fixture))?.match).toEqual(game);
+    expect(getLeagueMonth).toHaveBeenCalledTimes(1);
+  });
+
   it('agenda o A/D/D pela tabela oficial mesmo quando o calendário da ESPN está desatualizado', async () => {
     const kickoff = new Date('2026-10-24T19:30:00Z');
     const opening = new Date(kickoff.getTime() - 3_600_000);
