@@ -1,14 +1,17 @@
-import type { VkClient, VkComment, VkTopic } from '../clients/vk.js';
+import type { VkClient, VkTopic } from '../clients/vk.js';
 import {
-  ESPN_LINEUP_HEADING,
-  formatEspnLineup,
+  discussionLineups,
+  formatDiscussionLineups,
   formatMatchDiscussion,
-  formatOfficialLineup,
-  LINEUP_HEADING,
+  hasLineup,
+  LINEUP_SIDES,
+  type DiscussionLineup,
+  type LineupSide,
 } from '../football/discussion.js';
 import {
   clubKey,
   normalizedName,
+  opponentName,
   sheetFixture,
   type OfficialMatchSheet,
   type SheetFixture,
@@ -23,6 +26,7 @@ import { normalizeTitle } from './vk-topics.js';
 const HOUR = 3_600_000;
 const LINEUP_WINDOW = 6 * HOUR;
 const EMPTY_TV: BroadcastInfo = { broadcasts: [], source: null };
+const POSTED_AT = { botafogo: 'lineupPostedAt', opponent: 'opponentLineupPostedAt' } as const;
 export interface DiscussionStats {
   topics: number;
   lineups: number;
@@ -36,22 +40,29 @@ export async function publishMatchDiscussion(
 ): Promise<DiscussionStats> {
   const started = Date.now();
   const stats = { topics: 0, lineups: 0 };
-  // O tópico continua aguardando os onze mesmo se a agenda já apontar para o próximo adversário.
+  // O registro anterior à escalação adversária pode já ter lineupPostedAt para o Botafogo.
   const pending = await MatchDiscussion.findOne({
     groupId: vk.groupId,
-    lineupPostedAt: { $exists: false },
     retryAt: { $lte: now },
     kickoffAt: {
       $gte: new Date(now.getTime() - LINEUP_WINDOW),
       $lte: new Date(now.getTime() + HOUR),
     },
-    $or: [{ topicId: { $exists: true } }, { kickoffAt: { $lte: now } }],
+    $and: [
+      {
+        $or: [
+          { lineupPostedAt: { $exists: false } },
+          { opponentLineupPostedAt: { $exists: false } },
+        ],
+      },
+      { $or: [{ topicId: { $exists: true } }, { kickoffAt: { $lte: now } }] },
+    ],
   })
     .sort({ kickoffAt: 1 })
     .lean();
   if (pending) {
     try {
-      stats.lineups = await publishPendingLineup(vk, football, pending, now, deadline);
+      stats.lineups = await publishPendingLineups(vk, football, pending, now, deadline);
     } catch (error) {
       log('warn', 'discussion.lineup_failed', { matchId: pending.matchId, error });
     }
@@ -92,12 +103,11 @@ async function openDiscussion(
   deadline: number,
 ): Promise<number> {
   const started = Date.now();
-  const opponent = fixture.botafogoHome ? fixture.away : fixture.home;
   const fixtureKey = [
     fixture.date,
     fixture.competition,
     fixture.botafogoHome,
-    clubKey(opponent),
+    clubKey(opponentName(fixture)),
   ].join('|');
   const state = await MatchDiscussion.findOne({
     groupId: vk.groupId,
@@ -117,11 +127,11 @@ async function openDiscussion(
     return 0;
   }
   const openingDeadline = Math.min(deadline, started + (kickoff.getTime() - now.getTime()));
-  const [tv, lineup] = await Promise.all([
+  const [tv, lineups] = await Promise.all([
     sheet?.broadcasts.length ? EMPTY_TV : localBroadcasts(football, match, openingDeadline),
-    readLineup(football, match.id, currentFixture, sheet, openingDeadline),
+    readLineups(football, match.id, currentFixture, sheet, LINEUP_SIDES, openingDeadline),
   ]);
-  const opening = formatMatchDiscussion(match, kickoff, sheet, tv, now, lineup);
+  const opening = formatMatchDiscussion(match, kickoff, sheet, tv, now, lineups);
   const title = state?.title ?? opening.title;
   if (Date.now() >= deadline) return 0;
 
@@ -150,18 +160,20 @@ async function openDiscussion(
   )
     return 0;
   const topicId = existing?.id ?? (await vk.addTopic(title, opening.body));
-  const hasLineup = existing ? await openingHasLineup(vk, existing) : opening.includesLineup;
+  const included = existing
+    ? await openingLineups(vk, existing)
+    : lineups.map((lineup) => lineup.side);
   await MatchDiscussion.updateOne(key, {
     $set: {
       topicId,
       retryAt: new Date(now.getTime() + 30_000),
-      ...(hasLineup ? { lineupPostedAt: now } : {}),
+      ...lineupDates(included, now),
     },
   });
   return existing ? 0 : 1;
 }
 
-async function publishPendingLineup(
+async function publishPendingLineups(
   vk: VkClient,
   football: FootballService,
   state: MatchDiscussionRecord,
@@ -169,6 +181,7 @@ async function publishPendingLineup(
   deadline: number,
 ): Promise<number> {
   const key = { groupId: vk.groupId, matchId: state.matchId };
+  let needed = LINEUP_SIDES.filter((side) => !state[POSTED_AT[side]]);
   let topicId = state.topicId;
   if (!topicId) {
     // Timeout no último minuto de pré-jogo: só recupera o ID, nunca abre um tópico após o início.
@@ -180,12 +193,19 @@ async function publishPendingLineup(
       return 0;
     }
     topicId = topic.id;
-    const included = await openingHasLineup(vk, topic);
+    const included = await openingLineups(vk, topic);
     await MatchDiscussion.updateOne(key, {
-      $set: { topicId, ...(included ? { lineupPostedAt: now } : {}) },
+      $set: {
+        topicId,
+        ...lineupDates(
+          needed.filter((side) => included.includes(side)),
+          now,
+        ),
+      },
     });
-    if (included) return 0;
+    needed = needed.filter((side) => !included.includes(side));
   }
+  if (!needed.length) return 0;
   const sheet = await football.getOfficialMatchSheet(state.fixture);
   const kickoff = sheet ? sheet.kickoffAt : state.kickoffAt;
   if (
@@ -195,45 +215,53 @@ async function publishPendingLineup(
   )
     return 0;
   const fixture = { ...state.fixture, date: localDateKey(kickoff), time: localTime(kickoff) };
-  const message = await readLineup(football, state.matchId, fixture, sheet, deadline);
-  if (!message || Date.now() >= deadline) return 0;
+  const lineups = await readLineups(football, state.matchId, fixture, sheet, needed, deadline);
+  if (!lineups.length || Date.now() >= deadline) return 0;
   const opening = (await vk.getComments(topicId, 0, 1, 'asc')).items[0];
   if (!opening || Date.now() >= deadline) return 0;
-  const alreadyIncluded = hasLineup(opening.text);
-  if (!alreadyIncluded) await appendLineup(vk, state, topicId, opening, message);
-  await MatchDiscussion.updateOne(key, { $set: { lineupPostedAt: now } });
-  return alreadyIncluded ? 0 : 1;
-}
-
-async function appendLineup(
-  vk: VkClient,
-  state: MatchDiscussionRecord,
-  topicId: number,
-  opening: VkComment,
-  message: string,
-): Promise<void> {
-  const text = opening.text ? `${opening.text}\n\n${message}` : message;
+  const included = needed.filter((side) => hasLineup(opening.text, side));
+  if (included.length) await MatchDiscussion.updateOne(key, { $set: lineupDates(included, now) });
+  const additions = lineups.filter((lineup) => !included.includes(lineup.side));
+  if (!additions.length) return 0;
+  const message = formatDiscussionLineups(additions, opening.text);
+  const text = [opening.text, message].filter(Boolean).join('\n\n');
   if (!state.lineupAsComment && (await vk.editOwnComment(topicId, opening, text))) {
     const saved = (await vk.getComments(topicId, 0, 1, 'asc')).items[0];
-    if (saved?.id !== opening.id || !hasLineup(saved.text))
+    if (saved?.id !== opening.id || !additions.every((lineup) => saved.text.includes(lineup.text)))
       throw new Error('Escalação ainda não confirmada na leitura da abertura da VK');
+    const sides = additions.map((lineup) => lineup.side);
+    await MatchDiscussion.updateOne(key, { $set: lineupDates(sides, now) });
     log('info', 'discussion.lineup_edited', {
       matchId: state.matchId,
       topicId,
       commentId: opening.id,
+      sides,
     });
-    return;
+    return additions.length;
   }
-  // Fixar a forma de entrega antes do envio evita duplicação se o banco cair após o comentário.
+  // Cada equipe pode sair em um momento diferente. O Botafogo mantém o guid dos tópicos antigos.
   if (!state.lineupAsComment) {
-    await MatchDiscussion.updateOne(
-      { groupId: vk.groupId, matchId: state.matchId },
-      {
-        $set: { lineupAsComment: true },
-      },
-    );
+    await MatchDiscussion.updateOne(key, { $set: { lineupAsComment: true } });
   }
-  await vk.createComment(topicId, null, message, `discussion:${vk.groupId}:${topicId}:lineup`);
+  let posted = 0;
+  for (const lineup of additions) {
+    if (Date.now() >= deadline) break;
+    const suffix = lineup.side === 'botafogo' ? 'lineup' : 'opponent-lineup';
+    try {
+      await vk.createComment(
+        topicId,
+        null,
+        formatDiscussionLineups([lineup]),
+        `discussion:${vk.groupId}:${topicId}:${suffix}`,
+      );
+      await MatchDiscussion.updateOne(key, { $set: lineupDates([lineup.side], now) });
+      posted++;
+    } catch (error) {
+      log('warn', 'discussion.lineup_failed', { matchId: state.matchId, side: lineup.side, error });
+      break;
+    }
+  }
+  return posted;
 }
 
 async function findDiscussion(
@@ -257,33 +285,35 @@ async function findDiscussion(
   });
 }
 
-async function openingHasLineup(vk: VkClient, topic: VkTopic): Promise<boolean> {
+async function openingLineups(vk: VkClient, topic: VkTopic): Promise<LineupSide[]> {
   const opening =
     topic.first_comment ?? (await vk.getComments(topic.id, 0, 1, 'asc')).items[0]?.text;
-  return hasLineup(opening ?? '');
+  return LINEUP_SIDES.filter((side) => hasLineup(opening ?? '', side));
 }
 
-function hasLineup(text: string): boolean {
-  return text.includes(LINEUP_HEADING) || text.includes(ESPN_LINEUP_HEADING);
+function lineupDates(sides: LineupSide[], now: Date) {
+  const dates: Partial<Record<(typeof POSTED_AT)[LineupSide], Date>> = {};
+  for (const side of sides) dates[POSTED_AT[side]] = now;
+  return dates;
 }
 
-async function readLineup(
+async function readLineups(
   football: FootballService,
   matchId: string,
   fixture: SheetFixture,
   sheet: OfficialMatchSheet | null,
+  sides: readonly LineupSide[],
   deadline: number,
-): Promise<string | null> {
-  const official = formatOfficialLineup(sheet);
-  if (official) return official;
+): Promise<DiscussionLineup[]> {
+  const official = discussionLineups(sides, fixture, sheet);
   const budget = Math.min(4000, deadline - Date.now() - 2500);
-  if (budget <= 0) return null;
+  if (official.length === sides.length || budget <= 0) return official;
   try {
     const report = await boundedRead(football.getMatchReport(matchId, fixture), budget, null);
-    return formatEspnLineup(report);
+    return report ? discussionLineups(sides, fixture, sheet, report) : official;
   } catch (error) {
     log('warn', 'discussion.espn_lineup_failed', { matchId, error });
-    return null;
+    return official;
   }
 }
 

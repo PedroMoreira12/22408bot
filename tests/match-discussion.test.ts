@@ -6,7 +6,11 @@ import type { VkClient, VkComment } from '../src/clients/vk.js';
 import type { FootballService } from '../src/football/service.js';
 import type { FootballMatch, MatchReport } from '../src/football/types.js';
 import { sheetFixture, type OfficialMatchSheet } from '../src/football/match-sheet.js';
-import { ESPN_LINEUP_HEADING, LINEUP_HEADING } from '../src/football/discussion.js';
+import {
+  ESPN_LINEUP_HEADING,
+  LINEUP_HEADING,
+  OPPONENT_LINEUP_HEADING,
+} from '../src/football/discussion.js';
 import { publishMatchDiscussion } from '../src/jobs/match-discussion.js';
 
 const now = new Date('2026-11-23T22:00:00Z');
@@ -37,21 +41,34 @@ const sheet: OfficialMatchSheet = {
   broadcasts: [{ name: 'Prime Video', kind: 'paid-streaming' }],
   referee: 'Andre Luiz Skettino Policarpo Bento (MG)',
   starters: [],
+  opponentStarters: [],
 };
 const players = Array.from({ length: 11 }, (_, i) => `Jogador ${i + 1}`);
-const espnTeam = { teamName: 'Botafogo', isBotafogo: true, formation: null, starters: players };
+const rivalPlayers = players.map((p) => 'Rival ' + p);
+const espnTeam = {
+  teamId: 'espn:6086',
+  teamName: 'Botafogo',
+  isBotafogo: true,
+  formation: null,
+  starters: players,
+};
+const espnRival = {
+  teamId: 'espn:2026',
+  teamName: 'São Paulo',
+  isBotafogo: false,
+  formation: null,
+  starters: rivalPlayers,
+};
+const espnUrl = 'https://www.espn.com.br/futebol/partida/_/jogoId/401841326';
 const espnReport: MatchReport = {
-  match: { ...match, id: 'espn:401841326' },
+  match: {
+    ...match,
+    id: 'espn:401841326',
+    homeTeam: { ...match.homeTeam, id: espnTeam.teamId },
+    awayTeam: { ...match.awayTeam, id: espnRival.teamId },
+  },
   goals: [],
-  lineups: [
-    {
-      ...espnTeam,
-      teamName: 'São Paulo',
-      isBotafogo: false,
-      starters: players.map((p) => 'Rival ' + p),
-    },
-    espnTeam,
-  ],
+  lineups: [espnRival, espnTeam],
 };
 const recorded = {
   groupId: 42,
@@ -139,8 +156,12 @@ describe('A/D/D', () => {
     expect(football.getRecentBotafogoResults).not.toHaveBeenCalled();
   });
 
-  it('inclui os onze já confirmados na abertura e registra que não há comentário pendente', async () => {
-    football.getOfficialMatchSheet.mockResolvedValue({ ...sheet, starters: players });
+  it('inclui os onze de cada equipe já confirmados e registra as duas escalações na abertura', async () => {
+    football.getOfficialMatchSheet.mockResolvedValue({
+      ...sheet,
+      starters: players,
+      opponentStarters: rivalPlayers,
+    });
     await run();
     expect(vk.addTopic).toHaveBeenCalledWith(
       title,
@@ -149,11 +170,15 @@ describe('A/D/D', () => {
     expect(db.updateOne).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.objectContaining({
-        $set: expect.objectContaining({ lineupPostedAt: expect.any(Date) }),
+        $set: expect.objectContaining({
+          lineupPostedAt: expect.any(Date),
+          opponentLineupPostedAt: expect.any(Date),
+        }),
       }),
     );
     expect(vk.createComment).not.toHaveBeenCalled();
     expect(football.getMatchReport).not.toHaveBeenCalled();
+    expect(vk.addTopic.mock.calls[0]?.[1]).toContain(OPPONENT_LINEUP_HEADING + 'São Paulo (CBF):');
   });
 
   it('inclui os titulares identificados pela ESPN na abertura quando a ficha da CBF está vazia', async () => {
@@ -162,11 +187,16 @@ describe('A/D/D', () => {
     const body = String(vk.addTopic.mock.calls[0]?.[1]);
     expect(body).toContain(ESPN_LINEUP_HEADING);
     expect(body).toContain('Jogador 10 e Jogador 11.');
-    expect(body).toContain('https://www.espn.com.br/futebol/partida/_/jogoId/401841326');
+    expect(body.split(espnUrl)).toHaveLength(2);
     expect(body).toContain('Ficha oficial (CBF):');
-    expect(body).not.toContain('Rival');
+    expect(body).toContain(OPPONENT_LINEUP_HEADING + 'São Paulo (ESPN):\nRival Jogador 1,');
+    expect(body).toContain('Rival Jogador 10 e Rival Jogador 11.');
     expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
-      $set: expect.objectContaining({ topicId: 1234, lineupPostedAt: expect.any(Date) }),
+      $set: expect.objectContaining({
+        topicId: 1234,
+        lineupPostedAt: expect.any(Date),
+        opponentLineupPostedAt: expect.any(Date),
+      }),
     });
   });
 
@@ -200,7 +230,7 @@ describe('A/D/D', () => {
       football.getDiscussionMatch.mockResolvedValue(null);
       football.getOfficialMatchSheet.mockResolvedValue(official);
       football.getMatchReport.mockResolvedValue(espnReport);
-      await expect(run(kickoff)).resolves.toEqual({ topics: 0, lineups: 1 });
+      await expect(run(kickoff)).resolves.toEqual({ topics: 0, lineups: 2 });
       expect(football.getMatchReport).toHaveBeenCalledWith(match.id, ref);
       expect(vk.editOwnComment).toHaveBeenCalledWith(
         987,
@@ -211,14 +241,14 @@ describe('A/D/D', () => {
       expect(db.updateOne).toHaveBeenLastCalledWith(
         { groupId: 42, matchId: match.id },
         {
-          $set: { lineupPostedAt: expect.any(Date) },
+          $set: { lineupPostedAt: expect.any(Date), opponentLineupPostedAt: expect.any(Date) },
         },
       );
     },
   );
 
   it('mantém a pendência até receber exatamente onze titulares distintos do Botafogo', async () => {
-    db.findOne.mockReturnValue(query({ ...recorded, topicId: 987 }));
+    db.findOne.mockReturnValue(query({ ...recorded, topicId: 987, opponentLineupPostedAt: now }));
     football.getDiscussionMatch.mockResolvedValue(null);
     for (const lineups of [
       [espnReport.lineups[0]],
@@ -243,7 +273,126 @@ describe('A/D/D', () => {
     expect(vk.editOwnComment).toHaveBeenCalledTimes(1);
   });
 
-  it('reconhece a escalação ESPN ao recuperar um tópico criado antes de uma falha no banco', async () => {
+  it('completa o A/D/D anterior ao deploy só com o São Paulo e recupera uma gravação perdida', async () => {
+    db.findOne.mockReturnValue(query({ ...recorded, topicId: 987, lineupPostedAt: now }));
+    football.getDiscussionMatch.mockResolvedValue(null);
+    football.getMatchReport.mockResolvedValue(espnReport);
+    const previous = [
+      opening.text,
+      ESPN_LINEUP_HEADING + ':\n' + players.join(', ') + '.',
+      espnUrl,
+    ].join('\n');
+    visibleOpening = { ...opening, text: previous };
+    db.updateOne.mockRejectedValueOnce(new Error('mongo indisponível depois da edição'));
+    await run();
+    await run();
+    expect(db.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          {
+            $or: [
+              { lineupPostedAt: { $exists: false } },
+              { opponentLineupPostedAt: { $exists: false } },
+            ],
+          },
+        ]),
+      }),
+    );
+    expect(visibleOpening.text).toBe(
+      previous +
+        '\n\n' +
+        OPPONENT_LINEUP_HEADING +
+        'São Paulo (ESPN):\n' +
+        rivalPlayers.slice(0, -1).join(', ') +
+        ' e Rival Jogador 11.',
+    );
+    expect(vk.editOwnComment).toHaveBeenCalledOnce();
+    expect(vk.addTopic).not.toHaveBeenCalled();
+    expect(vk.createComment).not.toHaveBeenCalled();
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { opponentLineupPostedAt: expect.any(Date) },
+    });
+  });
+
+  it('inclui o adversário quando ele sai primeiro e edita só com os onze do Botafogo depois', async () => {
+    football.getOfficialMatchSheet.mockResolvedValueOnce({
+      ...sheet,
+      opponentStarters: rivalPlayers,
+    });
+    football.getMatchReport.mockRejectedValueOnce(new Error('ESPN indisponível'));
+    await run();
+    const first = String(vk.addTopic.mock.calls[0]?.[1]);
+    expect(first).toContain(OPPONENT_LINEUP_HEADING + 'São Paulo (CBF):\nRival Jogador 1,');
+    expect(first).not.toContain(LINEUP_HEADING);
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { topicId: 1234, retryAt: expect.any(Date), opponentLineupPostedAt: expect.any(Date) },
+    });
+    db.findOne.mockReturnValue(query({ ...recorded, topicId: 1234, opponentLineupPostedAt: now }));
+    football.getDiscussionMatch.mockResolvedValue(null);
+    football.getMatchReport.mockResolvedValue(espnReport);
+    visibleOpening = { ...opening, text: first };
+    await expect(run(kickoff)).resolves.toEqual({ topics: 0, lineups: 1 });
+    expect(visibleOpening.text.startsWith(first + '\n\n' + ESPN_LINEUP_HEADING)).toBe(true);
+    expect(visibleOpening.text.split(OPPONENT_LINEUP_HEADING)).toHaveLength(2);
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { lineupPostedAt: expect.any(Date) },
+    });
+  });
+
+  it('usa o ID do mandante da ESPN para o adversário e mantém a ficha oficial do Botafogo visitante', async () => {
+    football.getDiscussionMatch.mockResolvedValue({
+      ...match,
+      homeTeam: match.awayTeam,
+      awayTeam: match.homeTeam,
+    });
+    football.getOfficialMatchSheet.mockResolvedValue({ ...sheet, starters: players });
+    football.getMatchReport.mockResolvedValue({
+      ...espnReport,
+      match: {
+        ...espnReport.match,
+        homeTeam: espnReport.match.awayTeam,
+        awayTeam: espnReport.match.homeTeam,
+      },
+      lineups: [{ ...espnTeam, starters: players.map((p) => 'Outro ' + p) }, espnRival],
+    });
+    await run();
+    const body = String(vk.addTopic.mock.calls[0]?.[1]);
+    expect(body).toContain(LINEUP_HEADING + ' (CBF):\nJogador 1,');
+    expect(body).toContain(OPPONENT_LINEUP_HEADING + 'São Paulo (ESPN):\nRival Jogador 1,');
+    expect(body).not.toContain('Outro Jogador');
+  });
+
+  it('aguarda se a lista adversária vier incompleta, repetida, ambígua ou de outro clube', async () => {
+    db.findOne.mockReturnValue(query({ ...recorded, topicId: 987, lineupPostedAt: now }));
+    football.getDiscussionMatch.mockResolvedValue(null);
+    for (const lineups of [
+      [espnRival, espnRival],
+      [{ ...espnRival, teamId: 'espn:99' }],
+      [{ ...espnRival, starters: rivalPlayers.slice(1) }],
+      [{ ...espnRival, starters: [...rivalPlayers.slice(1), rivalPlayers[1]] }],
+    ]) {
+      football.getMatchReport.mockResolvedValueOnce({ ...espnReport, lineups });
+      await run();
+    }
+    expect(vk.editOwnComment).not.toHaveBeenCalled();
+    expect(db.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('a releitura de uma abertura só com Botafogo não confirma a edição do adversário', async () => {
+    db.findOne.mockReturnValue(query({ ...recorded, topicId: 987, lineupPostedAt: now }));
+    football.getDiscussionMatch.mockResolvedValue(null);
+    football.getMatchReport.mockResolvedValue(espnReport);
+    visibleOpening = { ...opening, text: opening.text + '\n\n' + ESPN_LINEUP_HEADING };
+    vk.editOwnComment.mockResolvedValueOnce(true);
+    await run();
+    expect(db.updateOne).not.toHaveBeenCalled();
+    await expect(run()).resolves.toEqual({ topics: 0, lineups: 1 });
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { opponentLineupPostedAt: expect.any(Date) },
+    });
+  });
+
+  it('reconhece a escalação ESPN do Botafogo na recuperação e continua procurando a do adversário', async () => {
     db.findOne.mockReturnValueOnce(query(recorded));
     football.getDiscussionMatch.mockResolvedValue(null);
     vk.getTopics.mockResolvedValue({
@@ -260,7 +409,7 @@ describe('A/D/D', () => {
     expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
       $set: { topicId: 987, lineupPostedAt: expect.any(Date) },
     });
-    expect(football.getMatchReport).not.toHaveBeenCalled();
+    expect(football.getMatchReport).toHaveBeenCalledWith(match.id, ref);
     expect(vk.createComment).not.toHaveBeenCalled();
   });
 
@@ -398,6 +547,34 @@ describe('A/D/D', () => {
     ]);
     expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
       $set: { lineupPostedAt: expect.any(Date) },
+    });
+  });
+
+  it('retoma só o comentário avulso do adversário com guid próprio após uma falha parcial', async () => {
+    const pending = { ...recorded, topicId: 987, lineupAsComment: true };
+    db.findOne
+      .mockReturnValueOnce(query(pending))
+      .mockReturnValueOnce(query({ ...pending, lineupPostedAt: now }));
+    football.getDiscussionMatch.mockResolvedValue(null);
+    football.getMatchReport.mockResolvedValue(espnReport);
+    vk.createComment
+      .mockResolvedValueOnce(100)
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce(101);
+    await expect(run()).resolves.toEqual({ topics: 0, lineups: 1 });
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { lineupPostedAt: now },
+    });
+    await expect(run()).resolves.toEqual({ topics: 0, lineups: 1 });
+    expect(vk.editOwnComment).not.toHaveBeenCalled();
+    expect(vk.createComment.mock.calls.map((args) => args[3])).toEqual([
+      'discussion:42:987:lineup',
+      'discussion:42:987:opponent-lineup',
+      'discussion:42:987:opponent-lineup',
+    ]);
+    expect(vk.createComment.mock.calls[2]?.[2]).toContain(espnUrl);
+    expect(db.updateOne).toHaveBeenLastCalledWith(expect.anything(), {
+      $set: { opponentLineupPostedAt: now },
     });
   });
 

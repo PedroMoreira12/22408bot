@@ -115,7 +115,11 @@ describe('parseEspnSummary', () => {
       expect.objectContaining({ id: '53830300', teamName: 'Chapecoense', penalty: true }),
       expect.objectContaining({ id: '53830400', minute: "88'" }),
     ]);
-    expect(report.lineups[0]).toMatchObject({ teamName: 'Botafogo', formation: '4-2-3-1' });
+    expect(report.lineups[0]).toMatchObject({
+      teamId: report.match.homeTeam.id,
+      teamName: 'Botafogo',
+      formation: '4-2-3-1',
+    });
     expect(report.lineups[0]?.starters).toHaveLength(11);
     expect(report.lineups[0]?.starters).not.toContain('Reserva');
   });

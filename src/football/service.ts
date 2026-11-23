@@ -9,7 +9,12 @@ import { log } from '../lib/logger.js';
 import { addDays, isLastDayOfMonth, localDateKey, saoPauloDate } from '../lib/time.js';
 import type { Broadcast, FootballMatch, MatchReport } from './types.js';
 import { compareMatches, involvesBotafogo } from './types.js';
-import { clubKey, type OfficialMatchSheet, type SheetFixture } from './match-sheet.js';
+import {
+  clubKey,
+  opponentName,
+  type OfficialMatchSheet,
+  type SheetFixture,
+} from './match-sheet.js';
 
 const BROADCAST_MATCH_WINDOW_MILLISECONDS = 3 * 60 * 60_000;
 
@@ -218,10 +223,16 @@ export class DefaultFootballService implements FootballService {
         const [official, local] = await Promise.all([read('conmebol'), read('ferj')]);
         if (!official) return local;
         if (
-          local?.starters.length === 11 &&
-          official.kickoffAt?.getTime() === local.kickoffAt?.getTime()
+          local?.kickoffAt &&
+          official.kickoffAt?.getTime() === local.kickoffAt.getTime() &&
+          (local.starters.length === 11 || local.opponentStarters.length === 11)
         ) {
-          return { ...official, starters: local.starters, lineupSource: 'FERJ' };
+          return {
+            ...official,
+            starters: local.starters,
+            opponentStarters: local.opponentStarters,
+            lineupSource: 'FERJ',
+          };
         }
         return official;
       }
@@ -294,7 +305,7 @@ function matchesFixture(match: FootballMatch, fixture: SheetFixture): boolean {
     match.time === fixture.time &&
     botafogo.isBotafogo &&
     !opponent.isBotafogo &&
-    clubKey(opponent.name) === clubKey(fixture.botafogoHome ? fixture.away : fixture.home)
+    clubKey(opponent.name) === clubKey(opponentName(fixture))
   );
 }
 

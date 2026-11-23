@@ -30,10 +30,19 @@ const eleven = Array.from({ length: 11 }, (_, i) => ({
   apelido: `${i + 1} - Titular ${i + 1}`,
   reserva: 'false',
 }));
+const rival = eleven.map((athlete, i) => ({
+  ...athlete,
+  id: String(i + 20),
+  apelido: `Rival ${i + 1}`,
+}));
 const calendar = { jogos: { 'Campeonato Brasileiro': { 'Série A': [game], 'Sub-20': [game] } } };
 const details = {
   ...game,
   mandante: { ...home, atletas: [{ id: '12', apelido: 'Reserva', reserva: 'true' }, ...eleven] },
+  visitante: {
+    ...away,
+    atletas: [...rival, { id: '40', apelido: 'Reserva adversário', reserva: 'true' }],
+  },
   arbitros: [
     { nome: 'Assistente', funcao: 'Arbitro Assistente 1', uf: 'RJ' },
     { nome: 'Andre Luiz Skettino Policarpo Bento', funcao: 'Arbitro', uf: 'MG' },
@@ -75,6 +84,7 @@ describe('ficha oficial da CBF', () => {
       broadcasts: [{ name: 'Prime Video', kind: 'paid-streaming' }],
       referee: 'Andre Luiz Skettino Policarpo Bento (MG)',
       starters: eleven.map((_, i) => `Titular ${i + 1}`),
+      opponentStarters: rival.map((athlete) => athlete.apelido),
       url: 'https://www.cbf.com.br/futebol-brasileiro/jogos/campeonato-brasileiro/serie-a/2026/botafogo-x-sao-paulo/832242',
     });
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
@@ -87,7 +97,12 @@ describe('ficha oficial da CBF', () => {
     const reversed = { ...game, mandante: away, visitante: home };
     const { client } = cbf(
       { jogos: { 'Campeonato Brasileiro': { 'Série A': [reversed] } } },
-      { ...reversed, visitante: details.mandante, canais: 'Globo, Premiere' },
+      {
+        ...reversed,
+        mandante: details.visitante,
+        visitante: details.mandante,
+        canais: 'Globo, Premiere',
+      },
     );
     const sheet = await client.getSheet({
       ...fixture,
@@ -95,7 +110,8 @@ describe('ficha oficial da CBF', () => {
       away: 'Botafogo',
       botafogoHome: false,
     });
-    expect(sheet?.starters).toHaveLength(11);
+    expect(sheet?.starters).toEqual(eleven.map((_, i) => `Titular ${i + 1}`));
+    expect(sheet?.opponentStarters).toEqual(rival.map((athlete) => athlete.apelido));
     expect(sheet?.broadcasts.map((item) => item.name)).toEqual(['Globo', 'Premiere']);
   });
 
@@ -106,14 +122,12 @@ describe('ficha oficial da CBF', () => {
       [...eleven.slice(0, 10), eleven[0]],
       [...eleven, { ...eleven[10], id: '22' }],
     ]) {
-      expect(
-        (
-          await cbf(calendar, {
-            ...details,
-            mandante: { ...home, atletas: players },
-          }).client.getSheet(fixture)
-        )?.starters,
-      ).toEqual([]);
+      const sheet = await cbf(calendar, {
+        ...details,
+        mandante: { ...home, atletas: players },
+      }).client.getSheet(fixture);
+      expect(sheet?.starters).toEqual([]);
+      expect(sheet?.opponentStarters).toEqual(rival.map((athlete) => athlete.apelido));
     }
     const incomplete = await cbf(calendar, {}).client.getSheet(fixture);
     expect(incomplete).toMatchObject({
@@ -121,6 +135,7 @@ describe('ficha oficial da CBF', () => {
       referee: null,
       broadcasts: [{ name: 'Prime Video' }],
       starters: [],
+      opponentStarters: [],
     });
   });
 
@@ -146,7 +161,7 @@ describe('ficha oficial da CBF', () => {
 });
 
 describe('fichas do Carioca e da CONMEBOL', () => {
-  it('lê apenas o bloco TITULARES do Botafogo na página exata da FERJ', async () => {
+  it('lê os blocos TITULARES de cada clube na página exata da FERJ', async () => {
     const listing =
       '<section aria-labelledby="dia-2026-02-15"><article><a aria-label="Ver a partida S.A.F Botafogo x C.R Flamengo" href="/partidas/3700"></a></article></section>';
     const list = (prefix: string) =>
@@ -159,7 +174,7 @@ describe('fichas do Carioca e da CONMEBOL', () => {
       '<section aria-label="Placar da partida"><div><span>Domingo, 15/02/2026 · 17:30</span><span>Nilton Santos</span></div></section>';
     const lineup =
       header +
-      `<section aria-label="Escalação C.R Flamengo"><h3>TITULARES</h3>${list('Rival')}</section><section aria-label="Escalação S.A.F Botafogo"><h3>TITULARES</h3>${list('Titular')}<h3>RESERVAS</h3>${list('Reserva')}</section>`;
+      `<section aria-label="Escalação C.R Flamengo"><h3>TITULARES</h3>${list('Rival')}<h3>RESERVAS</h3>${list('Banco rival')}</section><section aria-label="Escalação S.A.F Botafogo"><h3>TITULARES</h3>${list('Titular')}<h3>RESERVAS</h3>${list('Reserva')}</section>`;
     const ref =
       '<section aria-label="Arbitragem"><ul><li><span>Árbitro</span><span class="break-words">BRUNO ARLEU DE ARAÚJO</span></li></ul></section>';
     const fetchImpl = vi
@@ -188,6 +203,7 @@ describe('fichas do Carioca e da CONMEBOL', () => {
       venue: 'Nilton Santos',
       referee: 'BRUNO ARLEU DE ARAÚJO',
       starters: eleven.map((_, i) => `Titular ${i + 1}`),
+      opponentStarters: rival.map((athlete) => athlete.apelido),
     });
     expect(await client.getSheet({ ...carioca, away: 'Vasco' })).toBeNull();
   });
@@ -215,6 +231,7 @@ describe('fichas do Carioca e da CONMEBOL', () => {
       referee: 'Juan Gabriel Benítez Mareco',
       kickoffAt: new Date('2026-08-21T00:30:00Z'),
       starters: [],
+      opponentStarters: [],
     });
     expect(await client.getSheet({ ...match, date: '2026-08-21' })).toBeNull();
   });

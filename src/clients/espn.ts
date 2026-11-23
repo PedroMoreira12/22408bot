@@ -277,6 +277,7 @@ export function parseEspnSummary(payload: unknown): MatchReport {
     });
 
   const lineups: TeamLineup[] = rosters.map((roster) => ({
+    teamId: `espn:${roster.team.id}`,
     teamName: roster.team.displayName,
     isBotafogo: roster.team.id === ESPN_BOTAFOGO_ID,
     formation: roster.formation ?? null,

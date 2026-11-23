@@ -46,6 +46,7 @@ export interface MatchGoal {
 }
 
 export interface TeamLineup {
+  teamId: string;
   teamName: string;
   isBotafogo: boolean;
   formation: string | null;

@@ -19,7 +19,12 @@ export interface OfficialMatchSheet {
   broadcasts: Broadcast[];
   referee: string | null;
   starters: string[];
+  opponentStarters: string[];
   lineupSource?: 'FERJ';
+}
+
+export function opponentName(fixture: SheetFixture): string {
+  return fixture.botafogoHome ? fixture.away : fixture.home;
 }
 
 export function sheetFixture(match: FootballMatch): SheetFixture | null {

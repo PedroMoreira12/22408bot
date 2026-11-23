@@ -68,6 +68,7 @@ export class ConmebolClient {
       broadcasts: [],
       referee: value('referee'),
       starters: [],
+      opponentStarters: [],
     };
   }
 }

@@ -119,6 +119,7 @@ const lastReport: MatchReport = {
   ],
   lineups: [
     {
+      teamId: lastGame.homeTeam.id,
       teamName: 'Botafogo',
       isBotafogo: true,
       formation: '4-2-3-1',

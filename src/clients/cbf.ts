@@ -5,6 +5,7 @@ import { normalizeBroadcasts } from '../football/channels.js';
 import {
   clubKey,
   normalizedName,
+  opponentName,
   startingEleven,
   type OfficialMatchSheet,
   type SheetFixture,
@@ -148,7 +149,7 @@ export class CbfClient {
       return (
         game.data === formatDateKey(fixture.date) &&
         bot.id === BOTAFOGO_ID &&
-        clubKey(other.nome) === clubKey(fixture.botafogoHome ? fixture.away : fixture.home)
+        clubKey(other.nome) === clubKey(opponentName(fixture))
       );
     });
     const game = matches[0];
@@ -178,8 +179,6 @@ export class CbfClient {
     const principal = details?.arbitros?.find(
       (entry) => normalizedName(entry.funcao) === 'arbitro',
     );
-    const players = (fixture.botafogoHome ? details?.mandante : details?.visitante)?.atletas ?? [];
-    const starters = players.filter((athlete) => !athlete.reserva);
     const labels = details?.canais?.trim()
       ? details.canais.split(/\s*,\s*/u).map((name) => ({ name }))
       : (game.transmissoes ?? []).map(({ nome }) => ({ name: nome }));
@@ -200,16 +199,20 @@ export class CbfClient {
       referee: principal?.nome.trim()
         ? `${principal.nome.trim()}${principal.uf ? ` (${principal.uf})` : ''}`
         : null,
-      starters:
-        new Set(starters.map((athlete) => athlete.id)).size === 11
-          ? startingEleven(
-              starters.map((athlete) =>
-                (athlete.apelido?.trim() || athlete.nome || '').replace(/^\d+\s*-\s*/u, ''),
-              ),
-            )
-          : [],
+      starters: startersFor(fixture.botafogoHome ? details?.mandante : details?.visitante),
+      opponentStarters: startersFor(fixture.botafogoHome ? details?.visitante : details?.mandante),
     };
   }
+}
+
+function startersFor(side: z.infer<typeof teamSheet> | undefined): string[] {
+  const starters = (side?.atletas ?? []).filter((athlete) => !athlete.reserva);
+  if (new Set(starters.map((athlete) => athlete.id)).size !== 11) return [];
+  return startingEleven(
+    starters.map((athlete) =>
+      (athlete.apelido?.trim() || athlete.nome || '').replace(/^\d+\s*-\s*/u, ''),
+    ),
+  );
 }
 
 function confirmedTime(raw: string | null | undefined): string | null {
